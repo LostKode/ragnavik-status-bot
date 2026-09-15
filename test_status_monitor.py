@@ -1,0 +1,108 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+import status_monitor as monitor
+
+
+class TransitionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        monitor.EVENT_FILE = Path(self.temp.name) / "events.jsonl"
+        self.state = {"phase": "unknown", "pending": []}
+        self.running = {"healthy": True, "reason": "running", "task": "task-a",
+                        "container": "abcdef1234567890"}
+        self.down = {"healthy": False, "reason": "Valheim host is down", "task": ""}
+
+    def kinds(self):
+        if not monitor.EVENT_FILE.exists():
+            return []
+        import json
+        return [json.loads(line)["kind"] for line in monitor.EVENT_FILE.read_text().splitlines()]
+
+    def test_initial_running_task_stays_quiet_until_ready_hook(self):
+        monitor.reconcile(self.state, self.running, 1000)
+        self.assertEqual(self.state["phase"], "unknown")
+        self.assertEqual(self.kinds(), [])
+        self.state["ready_container"] = "abcdef123456"
+        monitor.reconcile(self.state, self.running, 1030)
+        self.assertEqual(self.state["phase"], "live")
+        self.assertEqual(self.kinds(), [])
+
+    def test_unexpected_outage_alerts_once_and_recovery_posts_once(self):
+        self.state["phase"] = "live"
+        self.state["ready_container"] = "abcdef123456"
+        monitor.reconcile(self.state, self.down, 1000)
+        monitor.reconcile(self.state, self.down, 1000 + monitor.DOWN_GRACE - 1)
+        self.assertEqual(self.kinds(), [])
+        monitor.reconcile(self.state, self.down, 1000 + monitor.DOWN_GRACE)
+        monitor.reconcile(self.state, self.down, 1000 + monitor.DOWN_GRACE + 60)
+        self.assertEqual(self.kinds(), ["offline"])
+        self.assertEqual([item["destination"] for item in self.state["pending"]],
+                         ["channel", "dm"])
+        monitor.reconcile(self.state, self.running, 1500)
+        monitor.reconcile(self.state, self.running, 1530)
+        self.assertEqual(self.kinds(), ["offline", "live"])
+
+    def test_maintenance_waits_for_restart_or_explicit_end(self):
+        self.state["phase"] = "maintenance"
+        self.state["ready_container"] = "abcdef123456"
+        self.state["maintenance"] = {"reason": "UI update", "until": 2000,
+                                     "finished": False, "had_stop": False,
+                                     "initial_container": "abcdef123456"}
+        monitor.reconcile(self.state, self.running, 1000)
+        self.assertEqual(self.state["phase"], "maintenance")
+        self.assertEqual(self.kinds(), [])
+        self.state["maintenance"]["finished"] = True
+        monitor.reconcile(self.state, self.running, 1030)
+        self.assertEqual(self.state["phase"], "live")
+        self.assertEqual(self.kinds(), ["live"])
+
+    def test_maintenance_expiry_with_server_still_live_posts_live(self):
+        self.state["phase"] = "maintenance"
+        self.state["ready_container"] = "abcdef123456"
+        self.state["maintenance"] = {"reason": "UI update", "until": 2000,
+                                     "finished": False, "had_stop": False,
+                                     "initial_container": "abcdef123456"}
+        monitor.reconcile(self.state, self.running, 1900)
+        self.assertEqual(self.kinds(), [])
+        monitor.reconcile(self.state, self.running, 2000)
+        self.assertEqual(self.kinds(), ["live"])
+        self.assertEqual(self.state["phase"], "live")
+
+    def test_maintenance_suppresses_alert_until_expiry(self):
+        self.state["phase"] = "maintenance"
+        self.state["maintenance"] = {"reason": "mod update", "until": 2000,
+                                     "finished": False, "had_stop": False,
+                                     "initial_container": ""}
+        monitor.reconcile(self.state, self.down, 1000)
+        monitor.reconcile(self.state, self.down, 1900)
+        self.assertEqual(self.kinds(), [])
+        monitor.reconcile(self.state, self.down, 2000)
+        monitor.reconcile(self.state, self.down, 2000 + monitor.DOWN_GRACE)
+        self.assertEqual(self.kinds(), ["offline"])
+
+    def test_internal_restart_has_longer_grace(self):
+        self.state["phase"] = "live"
+        self.state.pop("ready_container", None)
+        monitor.reconcile(self.state, self.running, 1000)
+        monitor.reconcile(self.state, self.running, 1000 + monitor.DOWN_GRACE)
+        self.assertEqual(self.kinds(), [])
+        monitor.reconcile(self.state, self.running, 1000 + monitor.RESTART_GRACE)
+        self.assertEqual(self.kinds(), ["offline"])
+
+    def test_old_ready_hook_does_not_mark_new_task_live(self):
+        self.state["phase"] = "offline"
+        self.state["ready_container"] = "abcdef123456"
+        new_task = dict(self.running, container="123456abcdef7890")
+        monitor.reconcile(self.state, new_task, 1000)
+        self.assertEqual(self.state["phase"], "offline")
+        self.state["ready_container"] = "123456abcdef"
+        monitor.reconcile(self.state, new_task, 1030)
+        self.assertEqual(self.state["phase"], "live")
+        self.assertEqual(self.kinds(), ["live"])
+
+
+if __name__ == "__main__":
+    unittest.main()

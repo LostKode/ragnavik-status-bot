@@ -1,0 +1,25 @@
+[Unit]
+Description=Ragnavik server status monitor
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=klastic
+Group=klastic
+SupplementaryGroups=docker
+StateDirectory=ragnavik-status
+EnvironmentFile=/etc/ragnavik-status/status.env
+ExecStart=/usr/bin/python3 /opt/ragnavik-status/status_monitor.py run
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ragnavik-status
+ReadOnlyPaths=/etc/ragnavik-status
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

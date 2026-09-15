@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="assembly_valheim" HintPath="$(ValheimManagedDir)/assembly_valheim.dll" />
+    <Reference Include="UnityEngine" HintPath="$(ValheimManagedDir)/UnityEngine.dll" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(ValheimManagedDir)/UnityEngine.CoreModule.dll" />
+    <Reference Include="UnityEngine.UnityWebRequestModule" HintPath="$(ValheimManagedDir)/UnityEngine.UnityWebRequestModule.dll" />
+    <Reference Include="UnityEngine.JSONSerializeModule" HintPath="$(ValheimManagedDir)/UnityEngine.JSONSerializeModule.dll" />
+    <Reference Include="BepInEx" HintPath="$(BepInExCoreDir)/BepInEx.dll" />
+    <Reference Include="0Harmony" HintPath="$(BepInExCoreDir)/0Harmony.dll" />
+  </ItemGroup>
+</Project>
