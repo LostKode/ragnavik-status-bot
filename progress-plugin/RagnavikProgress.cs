@@ -1,28 +1,52 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
 using BepInEx;
 using HarmonyLib;
 using UnityEngine;
-using UnityEngine.Networking;
 
 namespace RagnavikProgress;
 
-[BepInPlugin("lostkode.ragnavik.progress", "Ragnavik Progress", "1.0.0")]
+[BepInPlugin("lostkode.ragnavik.progress", "Ragnavik Progress", "1.0.1")]
 public sealed class RagnavikProgressPlugin : BaseUnityPlugin
 {
     private readonly FieldInfo? _globalKeysField = AccessTools.Field(typeof(ZoneSystem), "m_globalKeys");
     private float _nextCheck;
     private float _nextHeartbeat;
     private string _lastKeys = "";
-    private bool _sending;
+    private string _reportKeys = "";
+    private Task<bool>? _reportTask;
 
     private void Update()
     {
+        if (_reportTask is { IsCompleted: true })
+        {
+            try
+            {
+                if (_reportTask.GetAwaiter().GetResult())
+                {
+                    _lastKeys = _reportKeys;
+                    _nextHeartbeat = Time.realtimeSinceStartup + 3600f;
+                }
+                else
+                {
+                    Logger.LogWarning("Boss progress report returned an unexpected HTTP status.");
+                    _nextCheck = Time.realtimeSinceStartup + 300f;
+                }
+            }
+            catch (Exception exception)
+            {
+                Logger.LogWarning($"Boss progress report failed: {exception.Message}");
+                _nextCheck = Time.realtimeSinceStartup + 300f;
+            }
+            _reportTask = null;
+        }
+
         if (Time.realtimeSinceStartup < _nextCheck)
             return;
         _nextCheck = Time.realtimeSinceStartup + 60f;
@@ -39,13 +63,9 @@ public sealed class RagnavikProgressPlugin : BaseUnityPlugin
         var defeated = allKeys.Where(key => key.StartsWith("defeated_", StringComparison.OrdinalIgnoreCase))
             .OrderBy(key => key, StringComparer.OrdinalIgnoreCase).ToArray();
         var signature = string.Join("|", defeated);
-        if (!_sending && (signature != _lastKeys || Time.realtimeSinceStartup >= _nextHeartbeat))
-            StartCoroutine(Report(defeated, signature));
-    }
+        if (_reportTask != null || (signature == _lastKeys && Time.realtimeSinceStartup < _nextHeartbeat))
+            return;
 
-    private IEnumerator Report(string[] keys, string signature)
-    {
-        _sending = true;
         string token;
         try
         {
@@ -55,32 +75,31 @@ public sealed class RagnavikProgressPlugin : BaseUnityPlugin
         {
             Logger.LogWarning($"Boss progress hook token unavailable: {exception.Message}");
             _nextCheck = Time.realtimeSinceStartup + 600f;
-            _sending = false;
-            yield break;
+            return;
         }
         var body = JsonUtility.ToJson(new BossReport
         {
             container = Environment.GetEnvironmentVariable("HOSTNAME") ?? "",
-            keys = keys,
+            keys = defeated,
         });
-        using var request = new UnityWebRequest("http://192.168.86.21:8787/bosses", "POST");
-        request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
-        request.downloadHandler = new DownloadHandlerBuffer();
-        request.SetRequestHeader("Content-Type", "application/json");
-        request.SetRequestHeader("X-Ragnavik-Token", token);
-        request.timeout = 3;
-        yield return request.SendWebRequest();
-        if (request.result == UnityWebRequest.Result.Success)
-        {
-            _lastKeys = signature;
-            _nextHeartbeat = Time.realtimeSinceStartup + 3600f;
-        }
-        else
-        {
-            Logger.LogWarning($"Boss progress report failed: {request.error}");
-            _nextCheck = Time.realtimeSinceStartup + 300f;
-        }
-        _sending = false;
+        _reportKeys = signature;
+        _reportTask = Task.Run(() => SendReport(body, token));
+    }
+
+    private static bool SendReport(string body, string token)
+    {
+        var bytes = Encoding.UTF8.GetBytes(body);
+        var request = (HttpWebRequest)WebRequest.Create("http://192.168.86.21:8787/bosses");
+        request.Method = "POST";
+        request.ContentType = "application/json";
+        request.Headers["X-Ragnavik-Token"] = token;
+        request.Timeout = 3000;
+        request.ReadWriteTimeout = 3000;
+        request.ContentLength = bytes.Length;
+        using (var stream = request.GetRequestStream())
+            stream.Write(bytes, 0, bytes.Length);
+        using var response = (HttpWebResponse)request.GetResponse();
+        return response.StatusCode == HttpStatusCode.NoContent;
     }
 
     [Serializable]
