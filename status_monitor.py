@@ -129,7 +129,7 @@ def reconcile(state, observation, timestamp):
     if state["phase"] != "offline" and timestamp - state["down_since"] >= grace:
         record(state, "offline", reason,
                [("channel", f"Ragnavik is offline unexpectedly. {reason}."),
-                ("dm", f"Ragnavik outage alert: {reason}. I will send one recovery update in the log channel.")])
+                ("dm", f"Ragnavik outage alert: {reason}. I will send one recovery update in announcements.")])
         state["phase"] = "offline"
         state.pop("maintenance", None)
 
@@ -303,6 +303,18 @@ def maintenance_end():
         maintenance["until"] = min(maintenance["until"], now() + 15 * 60)
 
 
+def maintenance_backup_verified():
+    """Record an operator-verified pre-update backup, never routine hourly copies."""
+    with locked_state() as state:
+        if state.get("phase") != "maintenance" or not state.get("maintenance"):
+            raise RuntimeError("backup notice requires an active maintenance window")
+        if state["maintenance"].get("backup_announced"):
+            raise RuntimeError("verified backup notice already sent for this window")
+        record(state, "backup_verified", "pre-update rollback backup verified",
+               [("channel", "Ragnavik's pre-update rollback backup has been created and verified. Maintenance can proceed.")])
+        state["maintenance"]["backup_announced"] = True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -314,6 +326,7 @@ def main():
     start.add_argument("reason")
     start.add_argument("--hours", type=float, default=6)
     maintenance_sub.add_parser("end")
+    maintenance_sub.add_parser("backup-verified")
     args = parser.parse_args()
     if args.command == "run":
         run()
@@ -324,6 +337,8 @@ def main():
         if not 0 < args.hours <= 72:
             parser.error("--hours must be between 0 and 72")
         maintenance_start(args.reason, args.hours)
+    elif args.action == "backup-verified":
+        maintenance_backup_verified()
     else:
         maintenance_end()
 
