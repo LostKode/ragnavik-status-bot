@@ -6,6 +6,8 @@ The watcher samples the Valheim task and fenrir node every 30 seconds. The Valhe
 
 The announcements channel is `1245510337139052575` for maintenance, outages, recovery, and verified pre-update backups. The log channel `1245520097758674964` remains for anti-cheat and diagnostics. Routine hourly backups stay silent. Daniel's DM recipient ID is `208311542016376833`. The old webhook returns 403 and is unused.
 
+The watcher also checks the public Ragnavik **client** package on Thunderstore every 30 minutes. It posts one readable announcement for each newer published version with the stable client-pack link and only that version's changelog row from the package README. The first observed version establishes a quiet baseline in Phoenix's persistent status state. A changed version without a readable changelog row is retried rather than marked announced. Deploy and establish the baseline **before** publishing the next client pack so that release is not mistaken for the initial baseline. Server-pack and UI-only updates do not trigger a client-pack notice unless the client-pack version also changes.
+
 Phoenix now mounts the existing Uptime Kuma NFS export `192.168.86.20:/mnt/Alexander/uptime-kuma` at `/mnt/nfs/uptime-kuma` with the same automount options used by its other NFS shares. The infrastructure repository’s `uptime-kuma.yml` pins the service to Phoenix and keeps `/mnt/nfs/uptime-kuma/data` as its database path. Reprovisioning Phoenix must retain this mount before the stack is deployed. Its existing Quetzalcoatl ping monitor still targets a stale LAN DNS address `.26`; Swarm reports the live worker at `192.168.86.23`. Correct that monitor target separately to avoid false ping outages.
 
 ## Discord application
