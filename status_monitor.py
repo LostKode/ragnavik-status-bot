@@ -388,7 +388,7 @@ def maintenance_backup_verified():
         if state["maintenance"].get("backup_announced"):
             raise RuntimeError("verified backup notice already sent for this window")
         record(state, "backup_verified", "pre-update rollback backup verified",
-               [("channel", "Ragnavik's pre-update rollback backup has been created and verified. Maintenance can proceed.")])
+               [("logs", "Ragnavik's pre-update rollback backup has been created and verified. Maintenance can proceed.")])
         state["maintenance"]["backup_announced"] = True
 
 

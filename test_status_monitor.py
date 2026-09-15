@@ -117,7 +117,7 @@ class TransitionTests(unittest.TestCase):
         self.addCleanup(lambda: setattr(monitor, "locked_state", saved))
         monitor.maintenance_backup_verified()
         self.assertEqual(self.kinds(), ["backup_verified"])
-        self.assertEqual(self.state["pending"][0]["destination"], "channel")
+        self.assertEqual(self.state["pending"][0]["destination"], "logs")
         with self.assertRaisesRegex(RuntimeError, "already sent"):
             monitor.maintenance_backup_verified()
 
