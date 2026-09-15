@@ -12,7 +12,7 @@ Phoenix now mounts the existing Uptime Kuma NFS export `192.168.86.20:/mnt/Alexa
 
 Use Discord application ID `1549316665131536414`. [Invite its bot](https://discord.com/oauth2/authorize?client_id=1549316665131536414&scope=bot%20applications.commands&permissions=2048) with `bot` and `applications.commands` scopes, then grant `Send Messages` in the anti-cheat log channel. Daniel and the bot must share the guild, and Daniel's guild DM setting must allow the bot to open a private channel.
 
-The application ID and public key are public identifiers. The bot token is a credential and has not been supplied. Keep it out of Git and shell history. Once created in the Developer Portal, install it as the Swarm secret `ragnavik_discord_bot_token`. The worker bot stack mounts that secret only into the bot task. A bot token does not belong on Phoenix.
+The application ID and public key are public identifiers. The bot token is a credential and is installed as a Swarm secret on Phoenix. Keep it out of Git and shell history. Once created in the Developer Portal, install it as the Swarm secret `ragnavik_discord_bot_token`. The worker bot stack mounts that secret only into the bot task. A bot token does not belong on Phoenix.
 
 ## Phoenix watcher
 
@@ -37,7 +37,7 @@ Start the watcher only after both local token files exist. It stays quiet when f
 
 ## Worker bot
 
-Build `Dockerfile` for linux/amd64 and publish it as `ghcr.io/lostkode/ragnavik-status-bot:1.0.0`. After installing the bot and control Swarm secrets, deploy `ragnavik-bot.yml` from LostKode/docker-swarm-configs. Its one task is pinned to Quetzalcoatl. The bot connects outward to Discord and asks Phoenix's authenticated LAN endpoint for status and queued messages.
+Tag a release such as `v1.0.0` to build `Dockerfile` on GitHub Actions for linux/amd64 and publish it as `ghcr.io/lostkode/ragnavik-status-bot:1.0.0`. After installing the bot and control Swarm secrets, deploy `ragnavik-bot.yml` from LostKode/docker-swarm-configs. Its one task is pinned to Quetzalcoatl. The bot connects outward to Discord and asks Phoenix's authenticated LAN endpoint for status and queued messages.
 
 The bot syncs these slash commands:
 
