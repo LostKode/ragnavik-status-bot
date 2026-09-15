@@ -1,8 +1,14 @@
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 import status_monitor as monitor
+
+
+@contextmanager
+def _StateContext(state):
+    yield state
 
 
 class TransitionTests(unittest.TestCase):
@@ -101,6 +107,26 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.kinds(), [])
         monitor.reconcile(self.state, self.running, 1000 + monitor.RESTART_GRACE)
         self.assertEqual(self.kinds(), ["offline"])
+
+    def test_verified_pre_update_backup_posts_once_during_maintenance(self):
+        self.state["phase"] = "maintenance"
+        self.state["maintenance"] = {"reason": "mod update", "until": 2000,
+                                     "finished": False}
+        saved = monitor.locked_state
+        monitor.locked_state = lambda: _StateContext(self.state)
+        self.addCleanup(lambda: setattr(monitor, "locked_state", saved))
+        monitor.maintenance_backup_verified()
+        self.assertEqual(self.kinds(), ["backup_verified"])
+        self.assertEqual(self.state["pending"][0]["destination"], "channel")
+        with self.assertRaisesRegex(RuntimeError, "already sent"):
+            monitor.maintenance_backup_verified()
+
+    def test_backup_notice_requires_maintenance(self):
+        saved = monitor.locked_state
+        monitor.locked_state = lambda: _StateContext(self.state)
+        self.addCleanup(lambda: setattr(monitor, "locked_state", saved))
+        with self.assertRaisesRegex(RuntimeError, "active maintenance"):
+            monitor.maintenance_backup_verified()
 
     def test_old_ready_hook_does_not_mark_new_task_live(self):
         self.state["phase"] = "offline"
