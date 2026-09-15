@@ -102,9 +102,7 @@ def reconcile(state, observation, timestamp):
         state.get("ready_container", "UNMATCHED")) and state.get("ready_container")
     maintenance = state.get("maintenance")
     if (ready and state["phase"] == "maintenance" and maintenance and
-            not maintenance.get("finished") and not maintenance.get("had_stop") and
-            timestamp < maintenance["until"] and maintenance.get("initial_container") and
-            observation.get("container", "").startswith(maintenance["initial_container"])):
+            not maintenance.get("finished") and timestamp < maintenance["until"]):
         return
     if ready:
         state.pop("down_since", None)
@@ -220,8 +218,6 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 elif state.get("ready_container", "").startswith(container):
                     state.pop("ready_container", None)
                     state["stopped_at"] = utc(now())
-                    if state.get("maintenance"):
-                        state["maintenance"]["had_stop"] = True
         elif self.path == "/bosses":
             try:
                 report = json.loads(raw)
@@ -291,8 +287,7 @@ def maintenance_start(reason, hours):
         if state.get("maintenance") and state["phase"] == "maintenance":
             raise RuntimeError("maintenance is already active")
         state["maintenance"] = {"reason": reason, "until": now() + hours * 3600,
-                                "finished": False, "had_stop": False,
-                                "initial_container": state.get("ready_container", "")}
+                                "finished": False}
         state["phase"] = "maintenance"
         state.pop("down_since", None)
         record(state, "maintenance", reason,

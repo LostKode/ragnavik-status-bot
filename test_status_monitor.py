@@ -45,17 +45,29 @@ class TransitionTests(unittest.TestCase):
         monitor.reconcile(self.state, self.running, 1530)
         self.assertEqual(self.kinds(), ["offline", "live"])
 
-    def test_maintenance_waits_for_restart_or_explicit_end(self):
+    def test_maintenance_waits_for_explicit_end_across_multiple_restarts(self):
         self.state["phase"] = "maintenance"
         self.state["ready_container"] = "abcdef123456"
         self.state["maintenance"] = {"reason": "UI update", "until": 2000,
-                                     "finished": False, "had_stop": False,
-                                     "initial_container": "abcdef123456"}
+                                     "finished": False}
         monitor.reconcile(self.state, self.running, 1000)
         self.assertEqual(self.state["phase"], "maintenance")
         self.assertEqual(self.kinds(), [])
-        self.state["maintenance"]["finished"] = True
+        self.state.pop("ready_container")
+        monitor.reconcile(self.state, self.down, 1010)
+        self.state["ready_container"] = "abcdef123456"
         monitor.reconcile(self.state, self.running, 1030)
+        self.assertEqual(self.state["phase"], "maintenance")
+        self.assertEqual(self.kinds(), [])
+        new_task = dict(self.running, container="123456abcdef7890")
+        self.state.pop("ready_container")
+        monitor.reconcile(self.state, self.down, 1040)
+        self.state["ready_container"] = "123456abcdef"
+        monitor.reconcile(self.state, new_task, 1060)
+        self.assertEqual(self.state["phase"], "maintenance")
+        self.assertEqual(self.kinds(), [])
+        self.state["maintenance"]["finished"] = True
+        monitor.reconcile(self.state, new_task, 1090)
         self.assertEqual(self.state["phase"], "live")
         self.assertEqual(self.kinds(), ["live"])
 
@@ -63,8 +75,7 @@ class TransitionTests(unittest.TestCase):
         self.state["phase"] = "maintenance"
         self.state["ready_container"] = "abcdef123456"
         self.state["maintenance"] = {"reason": "UI update", "until": 2000,
-                                     "finished": False, "had_stop": False,
-                                     "initial_container": "abcdef123456"}
+                                     "finished": False}
         monitor.reconcile(self.state, self.running, 1900)
         self.assertEqual(self.kinds(), [])
         monitor.reconcile(self.state, self.running, 2000)
@@ -74,8 +85,7 @@ class TransitionTests(unittest.TestCase):
     def test_maintenance_suppresses_alert_until_expiry(self):
         self.state["phase"] = "maintenance"
         self.state["maintenance"] = {"reason": "mod update", "until": 2000,
-                                     "finished": False, "had_stop": False,
-                                     "initial_container": ""}
+                                     "finished": False}
         monitor.reconcile(self.state, self.down, 1000)
         monitor.reconcile(self.state, self.down, 1900)
         self.assertEqual(self.kinds(), [])

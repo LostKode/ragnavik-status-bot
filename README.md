@@ -53,7 +53,7 @@ Commands are ephemeral replies, so using them does not fill the anti-cheat log c
 
 ## Maintenance and deployment
 
-Before a long change, run `/ragnavik maintenance_start` in Discord or `python3 /opt/ragnavik-status/status_monitor.py maintenance start "UI and modpack update" --hours 6` on Phoenix. This queues one maintenance notice. Repeated restarts during the window do not queue more. When done, run `/ragnavik maintenance_end` or the matching Phoenix CLI command. The monitor gives Valheim 15 minutes to report ready, then posts one live notice. If the window expires, it reports an outage and sends the owner DM.
+Before a long change, run `/ragnavik maintenance_start` in Discord or `python3 /opt/ragnavik-status/status_monitor.py maintenance start "UI and modpack update" --hours 6` on Phoenix. This queues one maintenance notice and keeps maintenance active through every planned restart. When the final server task is ready, run `/ragnavik maintenance_end` or the matching Phoenix CLI command. The monitor then posts one live notice. If the window expires while the server is healthy, it posts the live notice; if the server is down, it reports an outage and sends the owner DM after its grace period.
 
 Deploy the Valheim hook and boss config changes only after the watcher and secrets are ready, inside a maintenance window. The stack update restarts the Valheim service. Test the listening and process-exit hooks, boss report, Discord channel notice, and owner DM with controlled transitions. Do not generate repeated test outages against the live world.
 
