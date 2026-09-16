@@ -1,0 +1,9 @@
+{
+  "name": "Ragnavik_Progress",
+  "version_number": "1.1.0",
+  "website_url": "https://github.com/LostKode/ragnavik-status-bot",
+  "description": "Server-only boss and EpicMMO milestone reporter with a private configurable HTTP endpoint.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2350"
+  ]
+}
