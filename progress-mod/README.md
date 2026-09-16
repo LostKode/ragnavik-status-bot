@@ -13,8 +13,6 @@ Ragnavik Progress is a server-only Valheim milestone reporter. It sends authenti
 * Defaults to disabled with no endpoint or credentials.
 * Does not report ordinary creature kills.
 
-The receiving service decides where and how announcements are delivered. This package does not contain a Discord webhook, server address, token, channel ID, or Ragnavik infrastructure detail.
-
 ## What server administrators need
 
 This mod is the game-side reporter. It does not bundle or require the Ragnavik Discord bot. A server administrator must provide an HTTP receiver that:
@@ -25,11 +23,11 @@ This mod is the game-side reporter. It does not bundle or require the Ragnavik D
 4. Routes accepted events to Discord, another chat service, a database, or logs.
 5. Returns HTTP `204 No Content` after safely accepting a report.
 
-The receiver can run in Docker, as a system service, as a serverless endpoint, or inside an existing community bot. Docker is optional. If Discord is used, the administrator supplies their own bot application or webhook bridge and their own channel IDs. Never place a Discord bot token or webhook URL in a public modpack.
+The receiver can run in Docker, as a system service, as a serverless endpoint, or inside an existing community bot. Docker is optional. If Discord is used, the administrator supplies their own bot application or webhook bridge and their own channel IDs.
 
 ## Configuration
 
-After the first server start, edit `BepInEx/config/lostkode.ragnavik.progress.cfg` on the server. Set `Enabled`, `Endpoint`, and optionally `TokenFile` and `TokenHeader`. Boss announcements and EpicMMO level announcements have independent switches. The level interval and nearby participant radius are configurable. Keep credentials in a server-only secret file rather than the package or configuration file.
+After the first server start, edit `BepInEx/config/lostkode.ragnavik.progress.cfg` on the server. Set `Enabled`, `Endpoint`, and optionally `TokenFile` and `TokenHeader`. Boss announcements and EpicMMO level announcements have independent switches. The level interval and nearby participant radius are configurable.
 
 The default EpicMMO milestone interval is 10 levels. EpicMMO is optional; boss reporting still works when it is not installed.
 
