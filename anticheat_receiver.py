@@ -162,9 +162,12 @@ def handler(queue, token_file):
 
 
 def start_receiver(queue=None):
-    queue = queue or EventQueue(ANTICHEAT_STATE_DIR / "anticheat.sqlite3")
-    server = http.server.ThreadingHTTPServer(
-        (ANTICHEAT_BIND, ANTICHEAT_PORT), handler(queue, ANTICHEAT_TOKEN_FILE))
+    try:
+        queue = queue or EventQueue(ANTICHEAT_STATE_DIR / "anticheat.sqlite3")
+        server = http.server.ThreadingHTTPServer(
+            (ANTICHEAT_BIND, ANTICHEAT_PORT), handler(queue, ANTICHEAT_TOKEN_FILE))
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        raise RuntimeError(f"receiver could not start: {exc}") from exc
     thread = threading.Thread(target=server.serve_forever, name="anticheat-receiver", daemon=True)
     thread.start()
     return server, queue

@@ -33,14 +33,20 @@ class RagnavikBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        self.anticheat_server, self.anticheat_queue = start_receiver()
+        self.anticheat_server = None
+        self.anticheat_queue = None
+        try:
+            self.anticheat_server, self.anticheat_queue = start_receiver()
+        except RuntimeError as exc:
+            print(f"Ragnavik anti-cheat intake disabled: {exc}", flush=True)
         self.delivery_task = asyncio.create_task(self.delivery_loop())
         await self.tree.sync()
 
     async def delivery_loop(self):
         while True:
             try:
-                item = await asyncio.to_thread(self.anticheat_queue.next)
+                item = (await asyncio.to_thread(self.anticheat_queue.next)
+                        if self.anticheat_queue is not None else None)
                 if item:
                     await asyncio.to_thread(deliver, item)
                     await asyncio.to_thread(self.anticheat_queue.ack, item["id"])
