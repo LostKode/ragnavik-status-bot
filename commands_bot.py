@@ -5,6 +5,7 @@ from pathlib import Path
 import urllib.error
 
 import discord
+from anticheat_receiver import start_receiver
 from discord import app_commands
 
 from bot_api import BOT_TOKEN_FILE, OWNER_ID, control, deliver
@@ -32,19 +33,25 @@ class RagnavikBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
+        self.anticheat_server, self.anticheat_queue = start_receiver()
         self.delivery_task = asyncio.create_task(self.delivery_loop())
         await self.tree.sync()
 
     async def delivery_loop(self):
         while True:
             try:
-                item = await phoenix("GET", "/events")
+                item = await asyncio.to_thread(self.anticheat_queue.next)
                 if item:
                     await asyncio.to_thread(deliver, item)
-                    await phoenix("POST", "/ack", {"id": item["id"]})
+                    await asyncio.to_thread(self.anticheat_queue.ack, item["id"])
+                else:
+                    item = await phoenix("GET", "/events")
+                    if item:
+                        await asyncio.to_thread(deliver, item)
+                        await phoenix("POST", "/ack", {"id": item["id"]})
             except (OSError, ValueError, RuntimeError, urllib.error.URLError) as exc:
                 print(f"Ragnavik delivery pending: {exc}", flush=True)
-            await asyncio.sleep(30)
+            await asyncio.sleep(5)
 
 
 client = RagnavikBot()
