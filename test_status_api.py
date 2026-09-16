@@ -62,10 +62,85 @@ class ApiTests(unittest.TestCase):
             self.call("POST", "/bosses", report, "hook")
         self.assertEqual(error.exception.code, 409)
 
+    def test_progress_baselines_then_announces_named_player_and_boss_milestones(self):
+        baseline = {
+            "server": "Ragnavik",
+            "instance": "abcdef123456",
+            "bosses": [],
+            "players": [{"id": "player-1", "name": "Ragnavik", "level": 9}],
+            "milestoneStep": 10,
+        }
+        self.call("POST", "/progress", baseline, "hook")
+        self.assertEqual(self.call("GET", "/events", token="control"), {})
+
+        progress = dict(baseline)
+        progress["bosses"] = ["defeated_eikthyr"]
+        progress["players"] = [{"id": "player-1", "name": "Ragnavik", "level": 10}]
+        self.call("POST", "/progress", progress, "hook")
+
+        first = self.call("GET", "/events", token="control")
+        self.assertEqual(first["destination"], "longhouse")
+        self.assertIn("Eikthyr", first["message"])
+        self.call("POST", "/ack", {"id": first["id"]}, "control")
+        second = self.call("GET", "/events", token="control")
+        self.assertEqual(second["destination"], "longhouse")
+        self.assertEqual(second["message"], "Ragnavik reached EpicMMO level 10!")
+
+    def test_progress_uses_current_ingame_name_without_repeating_milestone(self):
+        baseline = {
+            "server": "Ragnavik",
+            "instance": "abcdef123456",
+            "bosses": [],
+            "players": [{"id": "player-1", "name": "Old Name", "level": 19}],
+            "milestoneStep": 10,
+        }
+        self.call("POST", "/progress", baseline, "hook")
+        baseline["players"] = [{"id": "player-1", "name": "New Name", "level": 20}]
+        self.call("POST", "/progress", baseline, "hook")
+        event = self.call("GET", "/events", token="control")
+        self.assertEqual(event["message"], "New Name reached EpicMMO level 20!")
+        self.call("POST", "/ack", {"id": event["id"]}, "control")
+        self.call("POST", "/progress", baseline, "hook")
+        self.assertEqual(self.call("GET", "/events", token="control"), {})
+
+    def test_boss_kill_lists_killer_and_nearby_ingame_names_once(self):
+        baseline = {
+            "server": "Ragnavik",
+            "instance": "abcdef123456",
+            "bosses": [],
+            "players": [],
+            "bossKills": [],
+            "milestoneStep": 10,
+        }
+        self.call("POST", "/progress", baseline, "hook")
+        report = dict(baseline)
+        report["bossKills"] = [{
+            "id": "boss-zdo-1",
+            "key": "defeated_eikthyr",
+            "boss": "Eikthyr",
+            "killer": "Ragnavik",
+            "participants": ["Jamrican", "Ragnavik"],
+        }]
+        self.call("POST", "/progress", report, "hook")
+        event = self.call("GET", "/events", token="control")
+        self.assertEqual(event["destination"], "longhouse")
+        self.assertEqual(event["message"],
+                         "Ragnavik milestone: Eikthyr has been defeated! "
+                         "Killing blow: Ragnavik. Party: Jamrican, Ragnavik.")
+        self.call("POST", "/ack", {"id": event["id"]}, "control")
+        self.call("POST", "/progress", report, "hook")
+        self.assertEqual(self.call("GET", "/events", token="control"), {})
+
+        # The later world-key update must not create a second generic boss post.
+        report["bossKills"] = []
+        report["bosses"] = ["defeated_eikthyr"]
+        self.call("POST", "/progress", report, "hook")
+        self.assertEqual(self.call("GET", "/events", token="control"), {})
+
     def test_maintenance_notice_queues_one_event_and_acknowledges(self):
         self.call("POST", "/maintenance/start", {"reason": "UI update", "hours": 1}, "control")
         item = self.call("GET", "/events", token="control")
-        self.assertEqual(item["destination"], "channel")
+        self.assertEqual(item["destination"], "announcements")
         self.assertEqual(self.call("GET", "/state", token="control")["phase"], "maintenance")
         self.call("POST", "/ack", {"id": item["id"]}, "control")
         self.assertEqual(self.call("GET", "/events", token="control"), {})

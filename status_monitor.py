@@ -31,6 +31,16 @@ CLIENT_PACK_CHECK_SECONDS = int(os.environ.get("RAGNAVIK_CLIENT_PACK_CHECK_SECON
 CLIENT_PACK_API = "https://thunderstore.io/api/experimental/package/LostKode/Ragnavik/"
 CLIENT_PACK_PAGE = "https://thunderstore.io/c/valheim/p/LostKode/Ragnavik/"
 
+BOSS_NAMES = {
+    "defeated_eikthyr": "Eikthyr",
+    "defeated_gdking": "The Elder",
+    "defeated_bonemass": "Bonemass",
+    "defeated_dragon": "Moder",
+    "defeated_goblinking": "Yagluth",
+    "defeated_queen": "The Queen",
+    "defeated_fader": "Fader",
+}
+
 
 def now():
     return time.time()
@@ -184,7 +194,7 @@ def reconcile(state, observation, timestamp):
         state.pop("down_since", None)
         if state["phase"] in ("offline", "maintenance"):
             record(state, "live", "server listening",
-                   [("channel", "Ragnavik is live again. Players can connect.")])
+                   [("announcements", "Ragnavik is live again. Players can connect.")])
             state["phase"] = "live"
             state.pop("maintenance", None)
         elif state["phase"] == "unknown":
@@ -204,7 +214,7 @@ def reconcile(state, observation, timestamp):
     grace = DOWN_GRACE if not observation["healthy"] else RESTART_GRACE
     if state["phase"] != "offline" and timestamp - state["down_since"] >= grace:
         record(state, "offline", reason,
-               [("channel", f"Ragnavik is offline unexpectedly. {reason}."),
+               [("announcements", f"Ragnavik is offline unexpectedly. {reason}."),
                 ("dm", f"Ragnavik outage alert: {reason}. I will send one recovery update in announcements.")])
         state["phase"] = "offline"
         state.pop("maintenance", None)
@@ -261,7 +271,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                                ("phase", "maintenance", "boss_keys", "boss_at")})
 
     def do_POST(self):
-        hook = self.path in ("/ready", "/notready", "/bosses")
+        hook = self.path in ("/ready", "/notready", "/bosses", "/progress")
         control = self.path in ("/ack", "/maintenance/start", "/maintenance/end")
         if not hook and not control:
             self.send_error(404)
@@ -279,7 +289,8 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
             return
-        raw = self.body(4096 if self.path == "/bosses" else 512)
+        raw = self.body(16384 if self.path == "/progress" else
+                        4096 if self.path == "/bosses" else 512)
         if raw is None:
             return
         if self.path in ("/ready", "/notready"):
@@ -315,6 +326,104 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
             with locked_state() as state:
                 state["boss_keys"] = sorted(set(keys))
                 state["boss_at"] = utc(now())
+        elif self.path == "/progress":
+            try:
+                report = json.loads(raw)
+                instance = report["instance"]
+                server = report["server"]
+                bosses = report["bosses"]
+                players = report["players"]
+                boss_kills = report.get("bossKills", [])
+                step = report["milestoneStep"]
+                if (not isinstance(instance, str) or not instance or
+                        not all(ch in "0123456789abcdef" for ch in instance) or
+                        not isinstance(server, str) or not 0 < len(server) <= 80 or
+                        not isinstance(bosses, list) or len(bosses) > 50 or
+                        not all(isinstance(key, str) and len(key) <= 100 and
+                                key.startswith("defeated_") for key in bosses) or
+                        not isinstance(players, list) or len(players) > 64 or
+                        not isinstance(boss_kills, list) or len(boss_kills) > 20 or
+                        not isinstance(step, int) or not 1 <= step <= 100):
+                    raise ValueError
+                clean_players = []
+                for player in players:
+                    player_id = player["id"]
+                    name = player["name"]
+                    level = player["level"]
+                    if (not isinstance(player_id, str) or not 0 < len(player_id) <= 80 or
+                            not isinstance(name, str) or not 0 < len(name) <= 80 or
+                            not isinstance(level, int) or not 1 <= level <= 10000):
+                        raise ValueError
+                    clean_players.append((player_id, name, level))
+                clean_boss_kills = []
+                for kill in boss_kills:
+                    event_id = kill["id"]
+                    key = kill["key"]
+                    boss = kill["boss"]
+                    killer = kill["killer"]
+                    participants = kill["participants"]
+                    if (not isinstance(event_id, str) or not 0 < len(event_id) <= 120 or
+                            not isinstance(key, str) or len(key) > 100 or
+                            not isinstance(boss, str) or not 0 < len(boss) <= 100 or
+                            not isinstance(killer, str) or not 0 < len(killer) <= 80 or
+                            not isinstance(participants, list) or len(participants) > 64 or
+                            not all(isinstance(name, str) and 0 < len(name) <= 80
+                                    for name in participants)):
+                        raise ValueError
+                    clean_boss_kills.append((event_id, key, boss, killer, participants))
+            except (ValueError, KeyError, TypeError):
+                self.send_error(400)
+                return
+            observation = probe()
+            if (not observation["healthy"] or
+                    not observation.get("container", "").startswith(instance)):
+                self.send_error(409)
+                return
+            with locked_state() as state:
+                had_boss_baseline = "boss_keys" in state
+                previous_bosses = set(state.get("boss_keys", []))
+                current_bosses = set(bosses)
+                received_kill_keys = {key for _, key, _, _, _ in clean_boss_kills if key}
+                attributed_boss_keys = set(state.get("attributed_boss_keys", []))
+                if had_boss_baseline:
+                    for key in sorted(current_bosses - previous_bosses):
+                        if key in received_kill_keys or key in attributed_boss_keys:
+                            continue
+                        name = BOSS_NAMES.get(key, key.removeprefix("defeated_").replace("_", " ").title())
+                        record(state, "boss_milestone", key,
+                               [("longhouse", f"{server} milestone: {name} has been defeated!")])
+                state["boss_keys"] = sorted(current_bosses)
+                state["boss_at"] = utc(now())
+
+                seen_kills = state.setdefault("boss_kill_events", [])
+                seen_set = set(seen_kills)
+                for event_id, key, boss, killer, participants in clean_boss_kills:
+                    if event_id in seen_set:
+                        continue
+                    boss_name = BOSS_NAMES.get(key, boss)
+                    party = ", ".join(participants) if participants else "No nearby players recorded"
+                    message = (f"{server} milestone: {boss_name} has been defeated! "
+                               f"Killing blow: {killer}. Party: {party}.")
+                    record(state, "boss_kill", event_id, [("longhouse", message)])
+                    seen_kills.append(event_id)
+                    seen_set.add(event_id)
+                    if key:
+                        attributed_boss_keys.add(key)
+                state["boss_kill_events"] = seen_kills[-500:]
+                state["attributed_boss_keys"] = sorted(attributed_boss_keys)
+
+                milestones = state.setdefault("player_milestones", {})
+                names = state.setdefault("player_names", {})
+                for player_id, name, level in clean_players:
+                    threshold = level // step * step
+                    if player_id not in milestones:
+                        milestones[player_id] = threshold
+                    elif threshold > milestones[player_id]:
+                        milestones[player_id] = threshold
+                        record(state, "player_milestone", f"{player_id}:{threshold}",
+                               [("longhouse", f"{name} reached EpicMMO level {threshold}!")])
+                    names[player_id] = name
+                state["players_at"] = utc(now())
         elif self.path == "/ack":
             try:
                 event_id = json.loads(raw)["id"]
@@ -368,7 +477,7 @@ def maintenance_start(reason, hours):
         state["phase"] = "maintenance"
         state.pop("down_since", None)
         record(state, "maintenance", reason,
-               [("channel", f"Ragnavik is going offline for maintenance. {reason}. I will post when it is live again.")])
+               [("announcements", f"Ragnavik is going offline for maintenance. {reason}. I will post when it is live again.")])
 
 
 def maintenance_end():

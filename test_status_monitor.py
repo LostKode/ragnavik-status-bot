@@ -46,7 +46,7 @@ class TransitionTests(unittest.TestCase):
         monitor.reconcile(self.state, self.down, 1000 + monitor.DOWN_GRACE + 60)
         self.assertEqual(self.kinds(), ["offline"])
         self.assertEqual([item["destination"] for item in self.state["pending"]],
-                         ["channel", "dm"])
+                         ["announcements", "dm"])
         monitor.reconcile(self.state, self.running, 1500)
         monitor.reconcile(self.state, self.running, 1530)
         self.assertEqual(self.kinds(), ["offline", "live"])
