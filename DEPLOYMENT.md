@@ -2,6 +2,12 @@
 
 The bot source is private. The separate Swarm integration lives in [LostKode/docker-swarm-configs](https://github.com/LostKode/docker-swarm-configs/pull/43). Keep secrets out of either repository.
 
+## Deployment boundary
+
+A status-bot deployment may update the Phoenix manager watcher, its systemd unit, or the Quetzalcoatl worker image and service. It must not copy, replace, remove, or reconfigure live Valheim mods, and it must not restart or redeploy the game server.
+
+Changes to the game service or its mods require a separate, explicitly authorized server deployment. Before that separate deployment replaces or restarts the Valheim task, save the world and create and verify an independent rollback backup. The Ragnavik Progress mod is maintained in [LostKode/ragnavik-progress](https://github.com/LostKode/ragnavik-progress), not in this repository.
+
 ## Phoenix manager
 
 Copy `status_monitor.py`, `ragnavik-status.service`, and `scripts/install-manager.sh` to Phoenix as `/tmp/ragnavik-status_monitor.py`, `/tmp/ragnavik-status.service`, and `/tmp/ragnavik-install-manager.sh`. Run `sudo bash /tmp/ragnavik-install-manager.sh`. The script makes independent hook and control token files and Swarm secrets, installs the read-only watcher, and starts it. It does not change the Valheim service. Verify `systemctl is-active ragnavik-status.service`, and check that `/var/lib/ragnavik-status/state.json` has an empty `pending` array at first installation.
@@ -14,6 +20,8 @@ The Swarm secret `ragnavik_discord_bot_token` is already present. The watcher in
 
 For automatic client-pack announcements, deploy the watcher update and verify its persistent state records the currently published client version before uploading a newer client package. The watcher polls Thunderstore every 30 minutes and waits for the matching changelog row in the public package README. It does not announce a version merely because the bot or watcher restarted.
 
-## Valheim hooks
+## Verification
 
-Start a six hour maintenance window before applying the Valheim stack change because it restarts the service. The watcher keeps that window active through multiple planned restarts. Create the external Docker configs `ragnavik_progress_plugin_v3` from `RagnavikProgress.dll` and `ragnavik_progress_settings_v1` from the private server configuration. Mount the anti cheat client allowlist config at the runtime BepInEx path, not just the staging config path. Then deploy the changed `valheim-1.0.yml` once, check the game listening hook, all anti cheat allowlist entries, and `Ragnavik Progress 1.1.0` loading. Confirm that the first progress report establishes a quiet baseline before testing a controlled milestone. End maintenance with `/ragnavik maintenance_end` or the Phoenix CLI command after the final update, then confirm the watcher returns to `live` and the Discord delivery queue empties.
+After a manager update, verify `systemctl is-active ragnavik-status.service`, inspect the watcher log, and confirm the authenticated status endpoint responds from its intended LAN clients. After a worker update, verify the Swarm task is healthy, the Discord command sync succeeds, and the delivery queue drains. Confirm the Valheim task was not replaced or restarted as part of either bot deployment.
+
+Do not test outage or recovery announcements by disrupting the live game. Use unit tests and controlled API fixtures. If a separately authorized server deployment also changes hooks or the progress reporter, follow the server runbook and verify the watcher returns to `live` only after that deployment is complete.

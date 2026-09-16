@@ -1,4 +1,8 @@
-# Ragnavik status and Discord commands
+# Ragnavik Status Bot
+
+Ragnavik Status Bot is the private monitoring and Discord integration for the Ragnavik Valheim server. This repository owns the read-only Swarm watcher, its authenticated status API, the Discord command worker, tests, installation scripts, and bot deployment assets.
+
+The server-only progress reporter is maintained separately in [LostKode/ragnavik-progress](https://github.com/LostKode/ragnavik-progress). This repository accepts and announces its reports but does not own or package the mod.
 
 Uptime Kuma and this read-only Swarm watcher run on Phoenix, the manager. The Discord bot runs as one Swarm task on Quetzalcoatl, a worker separate from Valheim's fenrir host. Placement uses Swarm's node hostname, so the stale LAN DNS record for Quetzalcoatl does not affect scheduling. The bot uses Discord's Gateway for slash commands and the REST API for state-change messages; the supplied application public key is not needed because there is no HTTP interactions endpoint.
 
@@ -31,9 +35,9 @@ RAGNAVIK_CONTROL_TOKEN_FILE=/etc/ragnavik-status/control-token
 
 Start the watcher only after both local token files exist. It stays quiet when first installed against an already running game until the first listening hook arrives.
 
-## Boss progress
+## Progress reports
 
-`progress-plugin/RagnavikProgress.cs` is a reusable server-only BepInEx reporter. It reads Valheim boss keys and each connected character's EpicMMO level, then sends authenticated progress snapshots to a configurable private endpoint. The public plugin defaults to disabled with a blank endpoint. Ragnavik's endpoint and token path exist only in the server-mounted `lostkode.ragnavik.progress.cfg`; they are not compiled into the DLL or included in a public package.
+The authenticated `/progress` endpoint accepts snapshots from the separately maintained Ragnavik Progress server mod. Ragnavik's endpoint and token path belong only in the live server configuration and must never be committed here.
 
 The monitor establishes a baseline without posting old achievements. New boss defeats and every ten EpicMMO levels are sent to Longhouse using the character's current in-game name. A stable internal character identifier prevents duplicate posts but is never placed in Discord messages. State persists across game and bot restarts.
 
@@ -57,8 +61,10 @@ Commands are ephemeral replies, so using them does not fill the anti-cheat log c
 
 ## Maintenance and deployment
 
+Deploying this bot or its manager watcher must not alter live Valheim mods, replace the Valheim service, or restart the game server. A bot deployment updates only the Phoenix watcher or the Quetzalcoatl worker image. Any server mod or game-service change is a separate deployment that requires explicit authorization, a maintenance window, a saved world, and a verified rollback backup.
+
 Before a long change, run `/ragnavik maintenance_start` in Discord or `python3 /opt/ragnavik-status/status_monitor.py maintenance start "UI and modpack update" --hours 6` on Phoenix. This queues one maintenance notice and keeps maintenance active through every planned restart. Create and verify the separate rollback backup before replacing the live server task. Only after verification, run `python3 /opt/ragnavik-status/status_monitor.py maintenance backup-verified` on Phoenix to post one backup notice. When the final server task is ready, run `/ragnavik maintenance_end` or the matching Phoenix CLI command. The monitor then posts one live notice. If the window expires while the server is healthy, it posts the live notice; if the server is down, it reports an outage and sends the owner DM after its grace period.
 
-Deploy the Valheim hook and boss config changes only after the watcher and secrets are ready, inside a maintenance window. The stack update restarts the Valheim service. Test the listening and process-exit hooks, boss report, Discord channel notice, and owner DM with controlled transitions. Do not generate repeated test outages against the live world.
+If a separately authorized server deployment changes Valheim hooks or progress configuration, prepare the watcher and secrets first and follow that deployment's own runbook. Test the listening and process-exit hooks, progress report, Discord channel notice, and owner DM with controlled transitions. Do not generate repeated test outages against the live world.
 
 Phoenix can detect a fenrir power cut. A power cut that also takes Phoenix and Quetzalcoatl down cannot be reported by any service inside this site. That case needs an externally hosted heartbeat monitor.
