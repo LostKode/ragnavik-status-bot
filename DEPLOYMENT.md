@@ -20,6 +20,12 @@ The Swarm secret `ragnavik_discord_bot_token` is already present. The watcher in
 
 For automatic client-pack announcements, deploy the watcher update and verify its persistent state records the currently published client version before uploading a newer client package. The watcher polls Thunderstore every 30 minutes and waits for the matching changelog row in the public package README. It does not announce a version merely because the bot or watcher restarted.
 
+## Anti-cheat intake
+
+The worker image hosts an authenticated anti-cheat intake on Quetzalcoatl. Configure `RAGNAVIK_ANTICHEAT_BIND`, `RAGNAVIK_ANTICHEAT_PORT`, `RAGNAVIK_ANTICHEAT_TOKEN_FILE`, and `RAGNAVIK_BOT_STATE_DIR`. Mount the token as the dedicated `ragnavik_anticheat_reporter_token` secret and persist the state directory with ownership writable by container user `10001`. Permit only Fenrir to reach the private intake port.
+
+The intake validates and deduplicates events, writes them to `anticheat.sqlite3`, and acknowledges only after persistence. The normal delivery loop posts them to the private log channel and marks them delivered only after Discord accepts the message. Leave the CatosAntiCheat webhook URL empty. Installing the companion DLL on Fenrir is a separate server deployment and is not part of a bot deployment.
+
 ## Verification
 
 After a manager update, verify `systemctl is-active ragnavik-status.service`, inspect the watcher log, and confirm the authenticated status endpoint responds from its intended LAN clients. After a worker update, verify the Swarm task is healthy, the Discord command sync succeeds, and the delivery queue drains. Confirm the Valheim task was not replaced or restarted as part of either bot deployment.
