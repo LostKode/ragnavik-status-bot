@@ -10,7 +10,7 @@ from discord import app_commands
 from bot_api import BOT_TOKEN_FILE, OWNER_ID, control, deliver
 
 PACK_URL = "https://thunderstore.io/c/valheim/p/LostKode/Ragnavik/"
-GUIDE_URL = "https://www.ragnavik.com/"
+GUIDE_URL = "https://ragnavik.vercel.app/blog/getting-started"
 BOSSES = [
     ("Eikthyr", "defeated_eikthyr"),
     ("The Elder", "defeated_gdking"),
@@ -71,7 +71,7 @@ async def status(interaction: discord.Interaction):
     elif phase == "maintenance":
         message = f"Ragnavik is in maintenance: {state['maintenance']['reason']}."
     elif phase == "offline":
-        message = "Ragnavik is offline. The log channel has the outage details."
+        message = "Ragnavik is offline. The announcements channel has the outage details."
     else:
         message = "Ragnavik status is initializing."
     await interaction.response.send_message(message, ephemeral=True)

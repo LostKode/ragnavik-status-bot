@@ -10,7 +10,9 @@ Copy `status_monitor.py`, `ragnavik-status.service`, and `scripts/install-manage
 
 GitHub Actions publishes `ghcr.io/lostkode/ragnavik-status-bot:1.0.0` from the `v1.0.0` tag. The image remains private. The local Docker build uses the same source and tag. Quetzalcoatl accepts `klastic@192.168.86.23` with `/home/klastic/.ssh/codex-quaz`. Load the local image with `docker save ghcr.io/lostkode/ragnavik-status-bot:1.0.0 | ssh -i /home/klastic/.ssh/codex-quaz klastic@192.168.86.23 docker load`, then deploy `ragnavik-bot.yml` from Phoenix with `docker stack deploy --resolve-image never`. The worker must retain the local image when the service is rescheduled or the worker is reprovisioned.
 
-The Swarm secret `ragnavik_discord_bot_token` is already present. The watcher installer creates `ragnavik_bot_control_token` and `ragnavik_status_hook_token`. Grant the Discord application permission to send in channel `1245520097758674964`; the invite link is in the main README.
+The Swarm secret `ragnavik_discord_bot_token` is already present. The watcher installer creates `ragnavik_bot_control_token` and `ragnavik_status_hook_token`. Grant the Discord application permission to send in announcements channel `1245510337139052575`; keep channel `1245520097758674964` for anti-cheat and diagnostics. The invite link is in the main README.
+
+For automatic client-pack announcements, deploy the watcher update and verify its persistent state records the currently published client version before uploading a newer client package. The watcher polls Thunderstore every 30 minutes and waits for the matching changelog row in the public package README. It does not announce a version merely because the bot or watcher restarted.
 
 ## Valheim hooks
 

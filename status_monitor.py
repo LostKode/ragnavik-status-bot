@@ -9,10 +9,12 @@ import hmac
 import http.server
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import threading
 import time
+import urllib.request
 
 STATE_DIR = Path(os.environ.get("RAGNAVIK_STATUS_DIR", "/var/lib/ragnavik-status"))
 STATE_FILE = STATE_DIR / "state.json"
@@ -25,6 +27,9 @@ CONTROL_TOKEN_FILE = os.environ.get("RAGNAVIK_CONTROL_TOKEN_FILE", "/etc/ragnavi
 DOWN_GRACE = int(os.environ.get("RAGNAVIK_DOWN_GRACE_SECONDS", "180"))
 RESTART_GRACE = int(os.environ.get("RAGNAVIK_RESTART_GRACE_SECONDS", "600"))
 POLL_SECONDS = int(os.environ.get("RAGNAVIK_POLL_SECONDS", "30"))
+CLIENT_PACK_CHECK_SECONDS = int(os.environ.get("RAGNAVIK_CLIENT_PACK_CHECK_SECONDS", "1800"))
+CLIENT_PACK_API = "https://thunderstore.io/api/experimental/package/LostKode/Ragnavik/"
+CLIENT_PACK_PAGE = "https://thunderstore.io/c/valheim/p/LostKode/Ragnavik/"
 
 BOSS_NAMES = {
     "defeated_eikthyr": "Eikthyr",
@@ -106,6 +111,77 @@ def probe():
         return {"healthy": False, "reason": f"Swarm status unavailable: {exc}", "task": ""}
 
 
+def public_json(url):
+    request = urllib.request.Request(url, headers={"User-Agent": "RagnavikStatus/1.0"})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return json.load(response)
+
+
+def client_pack_notes(markdown, version):
+    """Take only this release's row from our Thunderstore README changelog."""
+    if not isinstance(markdown, str):
+        return ""
+    match = re.search(rf"^\|\s*{re.escape(version)}\s*\|\s*(.*?)\s*\|\s*$",
+                      markdown, re.MULTILINE)
+    if not match:
+        return ""
+    changes = re.sub(r"<br\s*/?>", "\n", match.group(1), flags=re.IGNORECASE)
+    changes = re.sub(r"<[^>]+>", "", changes)
+    lines = [line.strip() for line in changes.splitlines() if line.strip()]
+    return "\n".join(f"• {line[:850]}" for line in lines[:4])[:1200]
+
+
+def client_pack_message(version, notes):
+    return (f"**Ragnavik client pack v{version} is live**\n\n"
+            f"**What changed**\n{notes}\n\n"
+            f"[Get the client pack on Thunderstore]({CLIENT_PACK_PAGE})")
+
+
+def check_client_pack():
+    """Queue exactly one announcement per newer published client pack version."""
+    package = public_json(CLIENT_PACK_API)
+    latest = package["latest"]
+    version = latest["version_number"]
+    published_at = latest["date_created"]
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError("invalid client pack version from Thunderstore")
+    published = dt.datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    if published.tzinfo is None:
+        raise ValueError("Thunderstore release date has no timezone")
+    with locked_state() as state:
+        previous = state.get("client_pack_version")
+        if previous is None:
+            # The existing public release is a baseline, not a new announcement.
+            state["client_pack_version"] = version
+            state["client_pack_published_at"] = published_at
+            return
+        if previous == version:
+            return
+        last_at = state.get("client_pack_published_at")
+        if last_at and published <= dt.datetime.fromisoformat(last_at.replace("Z", "+00:00")):
+            return
+    readme = public_json(CLIENT_PACK_API + version + "/readme/")
+    notes = client_pack_notes(readme.get("markdown"), version)
+    if not notes:
+        raise ValueError(f"client pack {version} has no readable changelog row yet")
+    with locked_state() as state:
+        if state.get("client_pack_version") == version:
+            return
+        record(state, "client_pack_release", version,
+               [("channel", client_pack_message(version, notes))])
+        state["client_pack_version"] = version
+        state["client_pack_published_at"] = published_at
+
+
+def client_pack_loop():
+    while True:
+        try:
+            check_client_pack()
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"Ragnavik client pack check deferred: {exc}", flush=True)
+        threading.Event().wait(CLIENT_PACK_CHECK_SECONDS)
+
+
 def reconcile(state, observation, timestamp):
     container = observation.get("container", "")
     ready = observation["healthy"] and container and container.startswith(
@@ -139,7 +215,7 @@ def reconcile(state, observation, timestamp):
     if state["phase"] != "offline" and timestamp - state["down_since"] >= grace:
         record(state, "offline", reason,
                [("announcements", f"Ragnavik is offline unexpectedly. {reason}."),
-                ("dm", f"Ragnavik outage alert: {reason}. I will send one recovery update in the log channel.")])
+                ("dm", f"Ragnavik outage alert: {reason}. I will send one recovery update in announcements.")])
         state["phase"] = "offline"
         state.pop("maintenance", None)
 
@@ -383,6 +459,7 @@ def run():
     bind = os.environ.get("RAGNAVIK_HOOK_BIND", "192.168.86.21")
     server = http.server.ThreadingHTTPServer((bind, 8787), StatusHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=client_pack_loop, daemon=True).start()
     print("Ragnavik monitor listening on port 8787", flush=True)
     while True:
         observation = probe()
@@ -412,6 +489,18 @@ def maintenance_end():
         maintenance["until"] = min(maintenance["until"], now() + 15 * 60)
 
 
+def maintenance_backup_verified():
+    """Record an operator-verified pre-update backup, never routine hourly copies."""
+    with locked_state() as state:
+        if state.get("phase") != "maintenance" or not state.get("maintenance"):
+            raise RuntimeError("backup notice requires an active maintenance window")
+        if state["maintenance"].get("backup_announced"):
+            raise RuntimeError("verified backup notice already sent for this window")
+        record(state, "backup_verified", "pre-update rollback backup verified",
+               [("logs", "Ragnavik's pre-update rollback backup has been created and verified. Maintenance can proceed.")])
+        state["maintenance"]["backup_announced"] = True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -423,6 +512,7 @@ def main():
     start.add_argument("reason")
     start.add_argument("--hours", type=float, default=6)
     maintenance_sub.add_parser("end")
+    maintenance_sub.add_parser("backup-verified")
     args = parser.parse_args()
     if args.command == "run":
         run()
@@ -433,6 +523,8 @@ def main():
         if not 0 < args.hours <= 72:
             parser.error("--hours must be between 0 and 72")
         maintenance_start(args.reason, args.hours)
+    elif args.action == "backup-verified":
+        maintenance_backup_verified()
     else:
         maintenance_end()
 

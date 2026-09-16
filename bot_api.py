@@ -8,9 +8,14 @@ BOT_TOKEN_FILE = os.environ.get("DISCORD_BOT_TOKEN_FILE", "/run/secrets/ragnavik
 CONTROL_TOKEN_FILE = os.environ.get("RAGNAVIK_CONTROL_TOKEN_FILE", "/run/secrets/ragnavik_bot_control_token")
 STATUS_URL = os.environ.get("RAGNAVIK_STATUS_URL", "http://192.168.86.21:8787")
 LOG_CHANNEL_ID = os.environ.get("DISCORD_LOG_CHANNEL_ID",
-                                os.environ.get("DISCORD_STATUS_CHANNEL_ID", "1245520097758674964"))
-ANNOUNCEMENTS_CHANNEL_ID = os.environ.get("DISCORD_ANNOUNCEMENTS_CHANNEL_ID", "")
+                                os.environ.get("DISCORD_LOGS_CHANNEL_ID", "1245520097758674964"))
+ANNOUNCEMENTS_CHANNEL_ID = os.environ.get(
+    "DISCORD_ANNOUNCEMENTS_CHANNEL_ID",
+    os.environ.get("DISCORD_STATUS_CHANNEL_ID", "1245510337139052575"))
 LONGHOUSE_CHANNEL_ID = os.environ.get("DISCORD_LONGHOUSE_CHANNEL_ID", "")
+# Backward-compatible names used by existing deployments and tests.
+CHANNEL_ID = ANNOUNCEMENTS_CHANNEL_ID
+LOGS_CHANNEL_ID = LOG_CHANNEL_ID
 OWNER_ID = os.environ.get("DISCORD_OWNER_ID", "208311542016376833")
 DISCORD_API = "https://discord.com/api/v10"
 
@@ -42,12 +47,15 @@ def deliver(item):
         channel_id = dm["id"]
     else:
         channels = {
-            "channel": LOG_CHANNEL_ID,
+            "channel": ANNOUNCEMENTS_CHANNEL_ID,
             "log": LOG_CHANNEL_ID,
+            "logs": LOG_CHANNEL_ID,
             "announcements": ANNOUNCEMENTS_CHANNEL_ID,
             "longhouse": LONGHOUSE_CHANNEL_ID,
         }
-        channel_id = channels.get(item["destination"], "")
+        if item["destination"] not in channels:
+            raise ValueError(f"Unknown Discord destination: {item['destination']}")
+        channel_id = channels[item["destination"]]
         if not channel_id:
             raise RuntimeError(f"Discord channel is not configured for {item['destination']}")
     discord_request(token, "POST", f"/channels/{channel_id}/messages",
