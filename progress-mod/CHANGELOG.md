@@ -10,6 +10,7 @@
 * Establish quiet initial baselines and stable duplicate prevention across restarts.
 * Keep normal creature kills silent.
 * Default the public package to disabled with blank connection settings.
+* Document receiver responsibilities, authentication, payload fields, Docker options, and Discord privacy guidance.
 
 ## 1.0.1
 
