@@ -4,10 +4,11 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.error
 import urllib.request
 
-from anticheat_receiver import EventQueue, format_event, handler, validate_event
+from anticheat_receiver import EventQueue, format_event, handler, start_receiver, validate_event
 
 
 class AntiCheatReceiverTests(unittest.TestCase):
@@ -72,6 +73,11 @@ class AntiCheatReceiverTests(unittest.TestCase):
         message = format_event(clean)
         self.assertIn("no mod-list reply", message)
         self.assertIn("15s", message)
+
+    def test_receiver_start_failure_is_wrapped(self):
+        with unittest.mock.patch("anticheat_receiver.EventQueue", side_effect=PermissionError("denied")):
+            with self.assertRaisesRegex(RuntimeError, "receiver could not start: denied"):
+                start_receiver()
 
     def test_mentions_are_not_special_at_delivery(self):
         event = self.event()
