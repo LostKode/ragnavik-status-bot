@@ -42,6 +42,8 @@ BOSS_NAMES = {
 }
 
 
+MAX_PROGRESS_BODY = 262144
+
 def now():
     return time.time()
 
@@ -240,6 +242,14 @@ def reconcile(state, observation, timestamp):
 
 
 class StatusHandler(http.server.BaseHTTPRequestHandler):
+    def error_response(self, status, code, detail):
+        data = json.dumps({"error": code, "detail": detail}).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def authorized(self, token_file, header):
         try:
             expected = Path(token_file).read_text().strip()
@@ -255,10 +265,10 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if not 0 < size <= maximum:
-                raise ValueError("invalid body size")
+                raise ValueError(f"body must be between 1 and {maximum} bytes")
             return self.rfile.read(size)
-        except ValueError:
-            self.send_error(400)
+        except ValueError as exc:
+            self.error_response(400, "invalid_body", str(exc))
             return None
 
     def response(self, payload):
@@ -308,7 +318,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
             return
-        raw = self.body(16384 if self.path == "/progress" else
+        raw = self.body(MAX_PROGRESS_BODY if self.path == "/progress" else
                         4096 if self.path == "/bosses" else 512)
         if raw is None:
             return
@@ -354,16 +364,22 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 players = report["players"]
                 boss_kills = report.get("bossKills", [])
                 step = report["milestoneStep"]
-                if (not isinstance(instance, str) or not instance or
-                        not all(ch in "0123456789abcdef" for ch in instance) or
-                        not isinstance(server, str) or not 0 < len(server) <= 80 or
-                        not isinstance(bosses, list) or len(bosses) > 50 or
+                if not isinstance(instance, str) or not instance:
+                    raise ValueError("instance is required")
+                if len(instance) > 64 or not all(ch in "0123456789abcdef" for ch in instance):
+                    raise ValueError("instance must be a lowercase hexadecimal container ID")
+                if not isinstance(server, str) or not 0 < len(server) <= 80:
+                    raise ValueError("server must be a non-empty string of at most 80 characters")
+                if (not isinstance(bosses, list) or len(bosses) > 50 or
                         not all(isinstance(key, str) and len(key) <= 100 and
-                                key.startswith("defeated_") for key in bosses) or
-                        not isinstance(players, list) or len(players) > 64 or
-                        not isinstance(boss_kills, list) or len(boss_kills) > 20 or
-                        not isinstance(step, int) or not 1 <= step <= 100):
-                    raise ValueError
+                                key.startswith("defeated_") for key in bosses)):
+                    raise ValueError("bosses contains an invalid global key")
+                if not isinstance(players, list) or len(players) > 64:
+                    raise ValueError("players must contain at most 64 entries")
+                if not isinstance(boss_kills, list) or len(boss_kills) > 20:
+                    raise ValueError("bossKills must contain at most 20 entries")
+                if not isinstance(step, int) or not 1 <= step <= 100:
+                    raise ValueError("milestoneStep must be an integer from 1 to 100")
                 clean_players = []
                 for player in players:
                     player_id = player["id"]
@@ -372,7 +388,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                     if (not isinstance(player_id, str) or not 0 < len(player_id) <= 80 or
                             not isinstance(name, str) or not 0 < len(name) <= 80 or
                             not isinstance(level, int) or not 1 <= level <= 10000):
-                        raise ValueError
+                        raise ValueError("players contains an invalid id, name, or level")
                     clean_players.append((player_id, name, level))
                 clean_boss_kills = []
                 for kill in boss_kills:
@@ -388,10 +404,16 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                             not isinstance(participants, list) or len(participants) > 64 or
                             not all(isinstance(name, str) and 0 < len(name) <= 80
                                     for name in participants)):
-                        raise ValueError
+                        raise ValueError("bossKills contains an invalid event")
                     clean_boss_kills.append((event_id, key, boss, killer, participants))
-            except (ValueError, KeyError, TypeError):
-                self.send_error(400)
+            except json.JSONDecodeError:
+                self.error_response(400, "invalid_json", "request body is not valid JSON")
+                return
+            except KeyError as exc:
+                self.error_response(400, "missing_field", f"required field is missing: {exc.args[0]}")
+                return
+            except (ValueError, TypeError) as exc:
+                self.error_response(400, "invalid_progress", str(exc) or "progress payload is invalid")
                 return
             observation = probe()
             if (not observation["healthy"] or
@@ -496,7 +518,7 @@ def maintenance_start(reason, hours):
         state["phase"] = "maintenance"
         state.pop("down_since", None)
         record(state, "maintenance", reason,
-               [("announcements", f"Ragnavik is going offline for maintenance. {reason}. I will post when it is live again.")])
+               [("announcements", "Ragnavik is going offline for planned maintenance. I will post when it is live again.")])
 
 
 def maintenance_end():

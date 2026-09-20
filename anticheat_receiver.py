@@ -113,9 +113,13 @@ def _discord_text(value):
 def format_event(event):
     heading = ("**[CatosAntiCheat] Kick: mod mismatch**" if event["type"] == "mismatch"
                else "**[CatosAntiCheat] Kick: no mod-list reply**")
-    lines = [f"{heading} `{_discord_text(event['server'])}`",
-             f"Character: `{_discord_text(event['characterName']) or '<not supplied>'}`",
-             f"Steam ID: `{event['steamId'] or '<unavailable>'}`"]
+    lines = [f"{heading} `{_discord_text(event['server'])}`"]
+    if event["characterName"]:
+        lines.append(f"Character: `{_discord_text(event['characterName'])}`")
+    if event["steamId"]:
+        lines.append(f"Steam ID: `{event['steamId']}`")
+    if not event["characterName"] and not event["steamId"]:
+        lines.append("Player identity was not supplied by CatosAntiCheat.")
     if event["type"] == "mismatch":
         lines.append(f"Reasons ({len(event['problems'])}):")
         lines.extend(f"• {_discord_text(problem)}" for problem in event["problems"])

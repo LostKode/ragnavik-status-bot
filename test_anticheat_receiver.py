@@ -73,6 +73,13 @@ class AntiCheatReceiverTests(unittest.TestCase):
         message = format_event(clean)
         self.assertIn("no mod-list reply", message)
         self.assertIn("15s", message)
+        self.assertIn("identity was not supplied", message)
+        self.assertNotIn("<unavailable>", message)
+
+    def test_available_connection_identity_is_reported_exactly(self):
+        message = format_event(validate_event(self.event()))
+        self.assertIn("Character: `Viking`", message)
+        self.assertIn("Steam ID: `76561198000000000`", message)
 
     def test_receiver_start_failure_is_wrapped(self):
         with unittest.mock.patch("anticheat_receiver.EventQueue", side_effect=PermissionError("denied")):
