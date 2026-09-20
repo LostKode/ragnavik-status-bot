@@ -10,7 +10,7 @@ from discord import app_commands
 
 from bot_api import BOT_TOKEN_FILE, OWNER_ID, control, deliver
 
-PACK_URL = "https://thunderstore.io/c/valheim/p/LostKode/Ragnavik/"
+PACK_URL = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
 GUIDE_URL = "https://ragnavik.vercel.app/blog/getting-started"
 BOSSES = [
     ("Eikthyr", "defeated_eikthyr"),
@@ -67,7 +67,7 @@ group = app_commands.Group(name="ragnavik", description="Ragnavik server informa
 @group.command(name="latest", description="Show the latest Ragnavik modpack download page")
 async def latest(interaction: discord.Interaction):
     await interaction.response.send_message(
-        f"Latest Ragnavik modpack: {PACK_URL}\nThunderstore shows the newest published version there.",
+        f"Latest Ragnavik modpack: {PACK_URL}\nHexium shows the newest published version there.",
         ephemeral=True)
 
 

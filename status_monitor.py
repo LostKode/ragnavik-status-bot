@@ -28,8 +28,8 @@ DOWN_GRACE = int(os.environ.get("RAGNAVIK_DOWN_GRACE_SECONDS", "180"))
 RESTART_GRACE = int(os.environ.get("RAGNAVIK_RESTART_GRACE_SECONDS", "600"))
 POLL_SECONDS = int(os.environ.get("RAGNAVIK_POLL_SECONDS", "30"))
 CLIENT_PACK_CHECK_SECONDS = int(os.environ.get("RAGNAVIK_CLIENT_PACK_CHECK_SECONDS", "1800"))
-CLIENT_PACK_API = "https://thunderstore.io/api/experimental/package/LostKode/Ragnavik/"
-CLIENT_PACK_PAGE = "https://thunderstore.io/c/valheim/p/LostKode/Ragnavik/"
+CLIENT_PACK_API = "https://ragnavik.vercel.app/api/changelog"
+CLIENT_PACK_PAGE = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
 
 BOSS_NAMES = {
     "defeated_eikthyr": "Eikthyr",
@@ -117,61 +117,70 @@ def public_json(url):
         return json.load(response)
 
 
-def client_pack_notes(markdown, version):
-    """Take only this release's row from our Thunderstore README changelog."""
-    if not isinstance(markdown, str):
-        return ""
-    match = re.search(rf"^\|\s*{re.escape(version)}\s*\|\s*(.*?)\s*\|\s*$",
-                      markdown, re.MULTILINE)
-    if not match:
-        return ""
-    changes = re.sub(r"<br\s*/?>", "\n", match.group(1), flags=re.IGNORECASE)
-    changes = re.sub(r"<[^>]+>", "", changes)
-    lines = [line.strip() for line in changes.splitlines() if line.strip()]
-    return "\n".join(f"• {line[:850]}" for line in lines[:4])[:1200]
+def latest_client_pack(payload):
+    entries = payload.get("entries")
+    if payload.get("schemaVersion") != 1 or not isinstance(entries, list) or not entries:
+        raise ValueError("invalid Ragnavik changelog response")
+    entry = entries[0]
+    version = entry.get("version")
+    title = entry.get("title")
+    changes = entry.get("changes")
+    if (not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version)
+            or not isinstance(title, str) or not title.strip()
+            or not isinstance(changes, list) or not changes
+            or not all(isinstance(change, str) and change.strip() for change in changes)):
+        raise ValueError("latest Ragnavik changelog entry is incomplete")
+    notes = "\n".join(f"• {change.strip()[:850]}" for change in changes[:4])[:1200]
+    return {"version": version, "title": title.strip(), "notes": notes,
+            "published_at": entry.get("publishedAt", "")}
 
 
-def client_pack_message(version, notes):
+def version_tuple(version):
+    return tuple(int(part) for part in version.split("."))
+
+
+def client_pack_message(version, title, notes):
     return (f"**Ragnavik client pack v{version} is live**\n\n"
-            f"**What changed**\n{notes}\n\n"
-            f"[Get the client pack on Thunderstore]({CLIENT_PACK_PAGE})")
+            f"**{title}**\n{notes}\n\n"
+            f"[Get the latest client pack on Hexium]({CLIENT_PACK_PAGE})")
+
+
+def recovery_message(state):
+    version = state.get("client_pack_version")
+    title = state.get("client_pack_title")
+    notes = state.get("client_pack_notes")
+    if version and title and notes:
+        return ("**Ragnavik is live again**\n\n"
+                f"Latest client pack: **v{version}**\n"
+                f"**{title}**\n{notes}\n\n"
+                f"[Get the latest client pack on Hexium]({CLIENT_PACK_PAGE})")
+    return "Ragnavik is live again. Players can connect."
 
 
 def check_client_pack():
     """Queue exactly one announcement per newer published client pack version."""
-    package = public_json(CLIENT_PACK_API)
-    latest = package["latest"]
-    version = latest["version_number"]
-    published_at = latest["date_created"]
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        raise ValueError("invalid client pack version from Thunderstore")
-    published = dt.datetime.fromisoformat(published_at.replace("Z", "+00:00"))
-    if published.tzinfo is None:
-        raise ValueError("Thunderstore release date has no timezone")
+    latest = latest_client_pack(public_json(CLIENT_PACK_API))
+    version = latest["version"]
     with locked_state() as state:
         previous = state.get("client_pack_version")
         if previous is None:
-            # The existing public release is a baseline, not a new announcement.
             state["client_pack_version"] = version
-            state["client_pack_published_at"] = published_at
+            state["client_pack_published_at"] = latest["published_at"]
+            state["client_pack_title"] = latest["title"]
+            state["client_pack_notes"] = latest["notes"]
             return
         if previous == version:
+            state["client_pack_title"] = latest["title"]
+            state["client_pack_notes"] = latest["notes"]
             return
-        last_at = state.get("client_pack_published_at")
-        if last_at and published <= dt.datetime.fromisoformat(last_at.replace("Z", "+00:00")):
-            return
-    readme = public_json(CLIENT_PACK_API + version + "/readme/")
-    notes = client_pack_notes(readme.get("markdown"), version)
-    if not notes:
-        raise ValueError(f"client pack {version} has no readable changelog row yet")
-    with locked_state() as state:
-        if state.get("client_pack_version") == version:
+        if version_tuple(version) <= version_tuple(previous):
             return
         record(state, "client_pack_release", version,
-               [("channel", client_pack_message(version, notes))])
+               [("channel", client_pack_message(version, latest["title"], latest["notes"]))])
         state["client_pack_version"] = version
-        state["client_pack_published_at"] = published_at
-
+        state["client_pack_published_at"] = latest["published_at"]
+        state["client_pack_title"] = latest["title"]
+        state["client_pack_notes"] = latest["notes"]
 
 def client_pack_loop():
     while True:
@@ -194,7 +203,7 @@ def reconcile(state, observation, timestamp):
         state.pop("down_since", None)
         if state["phase"] in ("offline", "maintenance"):
             record(state, "live", "server listening",
-                   [("announcements", "Ragnavik is live again. Players can connect.")])
+                   [("announcements", recovery_message(state))])
             state["phase"] = "live"
             state.pop("maintenance", None)
         elif state["phase"] == "unknown":
@@ -214,7 +223,7 @@ def reconcile(state, observation, timestamp):
     grace = DOWN_GRACE if not observation["healthy"] else RESTART_GRACE
     if state["phase"] != "offline" and timestamp - state["down_since"] >= grace:
         record(state, "offline", reason,
-               [("announcements", f"Ragnavik is offline unexpectedly. {reason}."),
+               [("announcements", "Ragnavik is temporarily offline. We are checking it and will post here when it is available again."),
                 ("dm", f"Ragnavik outage alert: {reason}. I will send one recovery update in announcements.")])
         state["phase"] = "offline"
         state.pop("maintenance", None)
@@ -501,11 +510,26 @@ def maintenance_backup_verified():
         state["maintenance"]["backup_announced"] = True
 
 
+
+def announce_live():
+    latest = latest_client_pack(public_json(CLIENT_PACK_API))
+    with locked_state() as state:
+        state["client_pack_version"] = latest["version"]
+        state["client_pack_published_at"] = latest["published_at"]
+        state["client_pack_title"] = latest["title"]
+        state["client_pack_notes"] = latest["notes"]
+        record(state, "live", "operator confirmed server listening",
+               [("announcements", recovery_message(state))])
+        state["phase"] = "live"
+        state.pop("down_since", None)
+        state.pop("maintenance", None)
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run")
     sub.add_parser("status")
+    sub.add_parser("announce-live")
     maintenance = sub.add_parser("maintenance")
     maintenance_sub = maintenance.add_subparsers(dest="action", required=True)
     start = maintenance_sub.add_parser("start")
@@ -519,6 +543,8 @@ def main():
     elif args.command == "status":
         with locked_state() as state:
             print(json.dumps(state, indent=2, sort_keys=True))
+    elif args.command == "announce-live":
+        announce_live()
     elif args.action == "start":
         if not 0 < args.hours <= 72:
             parser.error("--hours must be between 0 and 72")
