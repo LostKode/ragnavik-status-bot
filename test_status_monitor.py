@@ -47,6 +47,12 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.kinds(), ["offline"])
         self.assertEqual([item["destination"] for item in self.state["pending"]],
                          ["announcements", "dm"])
+        public_message = self.state["pending"][0]["message"]
+        private_message = self.state["pending"][1]["message"]
+        self.assertNotIn("Swarm", public_message)
+        self.assertNotIn("task", public_message)
+        self.assertNotIn("Valheim host", public_message)
+        self.assertIn("Valheim host is down", private_message)
         monitor.reconcile(self.state, self.running, 1500)
         monitor.reconcile(self.state, self.running, 1530)
         self.assertEqual(self.kinds(), ["offline", "live"])
