@@ -47,6 +47,13 @@ class ApiTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=3) as response:
             return json.load(response) if response.status == 200 else None
 
+    def error(self, path, payload):
+        try:
+            self.call("POST", path, payload, "hook")
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.load(exc)
+        self.fail("expected an HTTP error")
+
     def test_control_endpoint_rejects_unauthorized_request(self):
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.call("GET", "/state")
@@ -145,6 +152,28 @@ class ApiTests(unittest.TestCase):
         self.call("POST", "/ack", {"id": item["id"]}, "control")
         self.assertEqual(self.call("GET", "/events", token="control"), {})
         self.assertEqual(len(self.call("GET", "/recent", token="control")), 1)
+
+
+    def test_progress_validation_returns_safe_actionable_json(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [{"id": "player-1", "name": "", "level": 10}],
+                  "bossKills": [], "milestoneStep": 10}
+        status, body = self.error("/progress", report)
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"], "invalid_progress")
+        self.assertIn("players", body["detail"])
+        self.assertNotIn("hook-test-token", json.dumps(body))
+
+    def test_progress_accepts_payload_larger_than_old_16k_limit(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [{"id": f"player-{index}", "name": "V" * 80, "level": 10}
+                              for index in range(64)],
+                  "bossKills": [{"id": f"kill-{kill}", "key": "", "boss": "Boss",
+                                 "killer": "Viking", "participants": ["P" * 80] * 64}
+                                for kill in range(20)],
+                  "milestoneStep": 10}
+        self.assertGreater(len(json.dumps(report).encode()), 16384)
+        self.call("POST", "/progress", report, "hook")
 
 
 if __name__ == "__main__":

@@ -146,5 +146,17 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(self.kinds(), ["live"])
 
 
+    def test_public_status_messages_never_expose_infrastructure_terms(self):
+        saved = monitor.locked_state
+        monitor.locked_state = lambda: _StateContext(self.state)
+        self.addCleanup(lambda: setattr(monitor, "locked_state", saved))
+        monitor.maintenance_start("Swarm task has zero replicas on node fenrir", 1)
+        public = [item["message"] for item in self.state["pending"]
+                  if item["destination"] == "announcements"]
+        self.assertEqual(len(public), 1)
+        for term in ("swarm", "task", "container", "node", "replica"):
+            self.assertNotIn(term, public[0].lower())
+
+
 if __name__ == "__main__":
     unittest.main()
