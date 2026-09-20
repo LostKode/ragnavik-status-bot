@@ -201,11 +201,18 @@ def reconcile(state, observation, timestamp):
         return
     if ready:
         state.pop("down_since", None)
-        if state["phase"] in ("offline", "maintenance"):
+        if state["phase"] == "maintenance" or state.pop("outage_was_maintenance", False):
             record(state, "live", "server listening",
                    [("announcements", recovery_message(state))])
             state["phase"] = "live"
             state.pop("maintenance", None)
+            state.pop("outage_reason", None)
+        elif state["phase"] == "offline":
+            reason = state.pop("outage_reason", "unknown operational cause")
+            record(state, "live", "unexpected outage recovered",
+                   [("logs", f"Ragnavik recovered from an unexpected outage. Previous cause: {reason}."),
+                    ("dm", f"Ragnavik recovered from the unexpected outage. Previous cause: {reason}.")])
+            state["phase"] = "live"
         elif state["phase"] == "unknown":
             state["phase"] = "live"
         return
@@ -222,11 +229,14 @@ def reconcile(state, observation, timestamp):
     state.setdefault("down_since", timestamp)
     grace = DOWN_GRACE if not observation["healthy"] else RESTART_GRACE
     if state["phase"] != "offline" and timestamp - state["down_since"] >= grace:
+        state["outage_reason"] = reason
+        state["outage_was_maintenance"] = bool(maintenance)
         record(state, "offline", reason,
-               [("announcements", "Ragnavik is temporarily offline. We are checking it and will post here when it is available again."),
-                ("dm", f"Ragnavik outage alert: {reason}. I will send one recovery update in announcements.")])
+               [("logs", f"Ragnavik outage detected: {reason}."),
+                ("dm", f"Ragnavik outage alert: {reason}. I will send you one recovery update.")])
         state["phase"] = "offline"
         state.pop("maintenance", None)
+
 
 
 class StatusHandler(http.server.BaseHTTPRequestHandler):
