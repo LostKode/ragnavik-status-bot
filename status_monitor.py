@@ -212,7 +212,7 @@ def reconcile(state, observation, timestamp):
         elif state["phase"] == "offline":
             reason = state.pop("outage_reason", "unknown operational cause")
             record(state, "live", "unexpected outage recovered",
-                   [("logs", f"Ragnavik recovered from an unexpected outage. Previous cause: {reason}."),
+                   [("logs", "Ragnavik recovered from an unexpected outage."),
                     ("dm", f"Ragnavik recovered from the unexpected outage. Previous cause: {reason}.")])
             state["phase"] = "live"
         elif state["phase"] == "unknown":
@@ -234,7 +234,7 @@ def reconcile(state, observation, timestamp):
         state["outage_reason"] = reason
         state["outage_was_maintenance"] = bool(maintenance)
         record(state, "offline", reason,
-               [("logs", f"Ragnavik outage detected: {reason}."),
+               [("logs", "Ragnavik is offline unexpectedly. The issue is being investigated."),
                 ("dm", f"Ragnavik outage alert: {reason}. I will send you one recovery update.")])
         state["phase"] = "offline"
         state.pop("maintenance", None)
