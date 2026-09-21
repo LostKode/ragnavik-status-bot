@@ -39,6 +39,7 @@ BOSS_NAMES = {
     "defeated_goblinking": "Yagluth",
     "defeated_queen": "The Queen",
     "defeated_fader": "Fader",
+    "defeated_frozenking": "Kall Fimbulbringer",
 }
 
 
@@ -297,7 +298,8 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 self.response(state["pending"][0] if state["pending"] else {})
             else:
                 self.response({key: state.get(key) for key in
-                               ("phase", "maintenance", "boss_keys", "boss_at")})
+                               ("phase", "maintenance", "boss_keys", "boss_at",
+                                "boss_player_counts")})
 
     def do_POST(self):
         hook = self.path in ("/ready", "/notready", "/bosses", "/progress")
@@ -362,6 +364,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 server = report["server"]
                 bosses = report["bosses"]
                 players = report.get("players", [])
+                player_bosses = report.get("playerBosses")
                 boss_kills = report.get("bossKills", [])
                 step = report["milestoneStep"]
                 if not isinstance(instance, str) or not instance:
@@ -376,6 +379,9 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                     raise ValueError("bosses contains an invalid global key")
                 if not isinstance(players, list) or len(players) > 64:
                     raise ValueError("players must contain at most 64 entries")
+                if (player_bosses is not None and
+                        (not isinstance(player_bosses, list) or len(player_bosses) > 256)):
+                    raise ValueError("playerBosses must contain at most 256 entries")
                 if not isinstance(boss_kills, list) or len(boss_kills) > 20:
                     raise ValueError("bossKills must contain at most 20 entries")
                 if not isinstance(step, int) or not 1 <= step <= 100:
@@ -390,6 +396,17 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                             not isinstance(level, int) or not 1 <= level <= 10000):
                         raise ValueError("players contains an invalid id, name, or level")
                     clean_players.append((player_id, name, level))
+                clean_player_bosses = []
+                if player_bosses is not None:
+                    for player in player_bosses:
+                        player_id = player["id"]
+                        keys = player["bosses"]
+                        if (not isinstance(player_id, str) or not 0 < len(player_id) <= 80 or
+                                not isinstance(keys, list) or len(keys) > 50 or
+                                not all(isinstance(key, str) and len(key) <= 100 and
+                                        key.startswith("defeated_") for key in keys)):
+                            raise ValueError("playerBosses contains an invalid id or boss key")
+                        clean_player_bosses.append((player_id, sorted(set(keys))))
                 clean_boss_kills = []
                 for kill in boss_kills:
                     event_id = kill["id"]
@@ -465,6 +482,16 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                                [("longhouse", f"{name} reached EpicMMO level {threshold}!")])
                     names[player_id] = name
                 state["players_at"] = utc(now())
+                if player_bosses is not None:
+                    known_player_bosses = state.setdefault("player_boss_keys", {})
+                    for player_id, keys in clean_player_bosses:
+                        known_player_bosses[player_id] = keys
+                    counts = {}
+                    for keys in known_player_bosses.values():
+                        for key in set(keys):
+                            counts[key] = counts.get(key, 0) + 1
+                    state["boss_player_counts"] = dict(sorted(counts.items()))
+                    state["player_bosses_at"] = utc(now())
         elif self.path == "/ack":
             try:
                 event_id = json.loads(raw)["id"]

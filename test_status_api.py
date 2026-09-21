@@ -180,6 +180,22 @@ class ApiTests(unittest.TestCase):
                   "milestoneStep": 10}
         self.call("POST", "/progress", report, "hook")
 
+    def test_progress_counts_private_boss_keys_by_player_and_retains_offline_players(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [], "bossKills": [], "milestoneStep": 10,
+                  "playerBosses": [
+                      {"id": "player-1", "bosses": ["defeated_eikthyr", "defeated_frozenking"]},
+                      {"id": "player-2", "bosses": ["defeated_eikthyr"]},
+                  ]}
+        self.call("POST", "/progress", report, "hook")
+        counts = self.call("GET", "/state", token="control")["boss_player_counts"]
+        self.assertEqual(counts, {"defeated_eikthyr": 2, "defeated_frozenking": 1})
+
+        report["playerBosses"] = [{"id": "player-2", "bosses": []}]
+        self.call("POST", "/progress", report, "hook")
+        counts = self.call("GET", "/state", token="control")["boss_player_counts"]
+        self.assertEqual(counts, {"defeated_eikthyr": 1, "defeated_frozenking": 1})
+
 
 
 

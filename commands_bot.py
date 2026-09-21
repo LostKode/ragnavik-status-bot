@@ -9,20 +9,10 @@ from anticheat_receiver import start_receiver
 from discord import app_commands
 
 from bot_api import BOT_TOKEN_FILE, OWNER_ID, control, deliver
+from boss_progress import boss_progress_message
 
 PACK_URL = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
 GUIDE_URL = "https://ragnavik.vercel.app/blog/getting-started"
-BOSSES = [
-    ("Eikthyr", "defeated_eikthyr"),
-    ("The Elder", "defeated_gdking"),
-    ("Bonemass", "defeated_bonemass"),
-    ("Moder", "defeated_dragon"),
-    ("Yagluth", "defeated_goblinking"),
-    ("The Queen", "defeated_queen"),
-    ("Fader", "defeated_fader"),
-]
-
-
 async def phoenix(method, path, payload=None):
     return await asyncio.to_thread(control, method, path, payload)
 
@@ -90,24 +80,14 @@ async def status(interaction: discord.Interaction):
     await interaction.response.send_message(message, ephemeral=True)
 
 
-@group.command(name="bosses", description="Show which world bosses have been defeated")
+@group.command(name="bosses", description="Show how many players have defeated each world boss")
 async def bosses(interaction: discord.Interaction):
     try:
         state = await phoenix("GET", "/state")
     except (OSError, urllib.error.URLError):
         await interaction.response.send_message("Boss progress is temporarily unavailable.", ephemeral=True)
         return
-    keys = state.get("boss_keys")
-    if keys is None:
-        message = "Boss progress is waiting for the server's first world key report."
-    else:
-        defeated = set(keys)
-        lines = [f"{'✓' if key in defeated else '○'} {name}" for name, key in BOSSES]
-        known = {key for _, key in BOSSES}
-        extra = sorted(defeated - known)
-        if extra:
-            lines.append("Other defeat keys: " + ", ".join(extra))
-        message = "Ragnavik world boss progress:\n" + "\n".join(lines)
+    message = boss_progress_message(state)
     await interaction.response.send_message(message[:1900], ephemeral=True)
 
 

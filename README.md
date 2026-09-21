@@ -43,7 +43,7 @@ The authenticated `/progress` endpoint accepts snapshots from the separately mai
 
 The monitor establishes a baseline without posting old achievements. New boss defeats and every ten EpicMMO levels are sent to Longhouse using the character's current in-game name. A stable internal character identifier prevents duplicate posts but is never placed in Discord messages. State persists across game and bot restarts.
 
-`/ragnavik bosses` maps the seven standard boss defeat keys to names and lists any other `defeated_` keys without guessing their meaning. These are world progression flags: the command shows whether each boss has been defeated at least once in this world. It does not count kills or identify which player made a kill.
+`/ragnavik bosses` maps all eight standard boss defeat keys, including Kall Fimbulbringer, and shows how many distinct player profiles hold each private progression key. The receiver retains the latest keys reported for previously observed profiles so totals include players who are currently offline.
 
 ## Worker bot
 
@@ -53,7 +53,7 @@ The bot syncs these slash commands:
 
 - `/ragnavik latest`: stable Thunderstore page for the newest published modpack.
 - `/ragnavik status`: live, maintenance, offline, or initializing.
-- `/ragnavik bosses`: bosses defeated in the current world.
+- `/ragnavik bosses`: player totals for each defeated boss.
 - `/ragnavik guide`: Ragnavik getting started site.
 - `/ragnavik recent`: last five status log entries, owner only.
 - `/ragnavik maintenance_start`: announce a planned window, owner only.
