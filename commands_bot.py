@@ -9,20 +9,13 @@ from anticheat_receiver import start_receiver
 from discord import app_commands
 
 from bot_api import BOT_TOKEN_FILE, OWNER_ID, control, deliver
+from boss_progress import boss_progress_message
+from death_counter import death_leaderboard_message
+from player_stats import boss_leaderboard_message, level_leaderboard_message, server_stats_message
+from more_commands import graveyard_message, milestones_message, online_message, records_message, world_message
 
 PACK_URL = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
 GUIDE_URL = "https://ragnavik.vercel.app/blog/getting-started"
-BOSSES = [
-    ("Eikthyr", "defeated_eikthyr"),
-    ("The Elder", "defeated_gdking"),
-    ("Bonemass", "defeated_bonemass"),
-    ("Moder", "defeated_dragon"),
-    ("Yagluth", "defeated_goblinking"),
-    ("The Queen", "defeated_queen"),
-    ("Fader", "defeated_fader"),
-]
-
-
 async def phoenix(method, path, payload=None):
     return await asyncio.to_thread(control, method, path, payload)
 
@@ -90,25 +83,89 @@ async def status(interaction: discord.Interaction):
     await interaction.response.send_message(message, ephemeral=True)
 
 
-@group.command(name="bosses", description="Show which world bosses have been defeated")
+@group.command(name="bosses", description="Show how many players have defeated each world boss")
 async def bosses(interaction: discord.Interaction):
     try:
         state = await phoenix("GET", "/state")
     except (OSError, urllib.error.URLError):
         await interaction.response.send_message("Boss progress is temporarily unavailable.", ephemeral=True)
         return
-    keys = state.get("boss_keys")
-    if keys is None:
-        message = "Boss progress is waiting for the server's first world key report."
-    else:
-        defeated = set(keys)
-        lines = [f"{'✓' if key in defeated else '○'} {name}" for name, key in BOSSES]
-        known = {key for _, key in BOSSES}
-        extra = sorted(defeated - known)
-        if extra:
-            lines.append("Other defeat keys: " + ", ".join(extra))
-        message = "Ragnavik world boss progress:\n" + "\n".join(lines)
+    message = boss_progress_message(state)
     await interaction.response.send_message(message[:1900], ephemeral=True)
+
+
+@group.command(name="deaths", description="Show the Ragnavik player death leaderboard")
+async def deaths(interaction: discord.Interaction):
+    try:
+        state = await phoenix("GET", "/state")
+    except (OSError, urllib.error.URLError):
+        await interaction.response.send_message("The death counter is temporarily unavailable.", ephemeral=True)
+        return
+    await interaction.response.send_message(death_leaderboard_message(state)[:1900], ephemeral=True)
+
+
+async def progress_state(interaction, unavailable):
+    try:
+        return await phoenix("GET", "/state")
+    except (OSError, urllib.error.URLError):
+        await interaction.response.send_message(unavailable, ephemeral=True)
+        return None
+
+
+@group.command(name="stats", description="Show a compact Ragnavik server summary")
+async def stats(interaction: discord.Interaction):
+    state = await progress_state(interaction, "Server stats are temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(server_stats_message(state)[:1900], ephemeral=True)
+
+
+@group.command(name="levels", description="Show the EpicMMO level leaderboard")
+async def levels(interaction: discord.Interaction):
+    state = await progress_state(interaction, "The level leaderboard is temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(level_leaderboard_message(state)[:1900], ephemeral=True)
+
+
+@group.command(name="bossboard", description="Show who has defeated the most world bosses")
+async def bossboard(interaction: discord.Interaction):
+    state = await progress_state(interaction, "The boss leaderboard is temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(boss_leaderboard_message(state)[:1900], ephemeral=True)
+
+
+@group.command(name="online", description="Show the current Ragnavik player count")
+async def online(interaction: discord.Interaction):
+    state = await progress_state(interaction, "The online count is temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(online_message(state), ephemeral=True)
+
+
+@group.command(name="records", description="Show notable Ragnavik player records")
+async def records(interaction: discord.Interaction):
+    state = await progress_state(interaction, "Player records are temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(records_message(state)[:1900], ephemeral=True)
+
+
+@group.command(name="milestones", description="Show recent Ragnavik player milestones")
+async def milestones(interaction: discord.Interaction):
+    state = await progress_state(interaction, "Player milestones are temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(milestones_message(state)[:1900], ephemeral=True)
+
+
+@group.command(name="world", description="Show the current world day, time, and raid")
+async def world(interaction: discord.Interaction):
+    state = await progress_state(interaction, "World information is temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(world_message(state), ephemeral=True)
+
+
+@group.command(name="graveyard", description="Show recent player deaths and causes")
+async def graveyard(interaction: discord.Interaction):
+    state = await progress_state(interaction, "The graveyard is temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(graveyard_message(state)[:1900], ephemeral=True)
 
 
 @group.command(name="guide", description="Show the Ragnavik getting started guide")

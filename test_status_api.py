@@ -180,6 +180,68 @@ class ApiTests(unittest.TestCase):
                   "milestoneStep": 10}
         self.call("POST", "/progress", report, "hook")
 
+    def test_progress_counts_private_boss_keys_by_player_and_retains_offline_players(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [], "bossKills": [], "milestoneStep": 10,
+                  "playerBosses": [
+                      {"id": "player-1", "bosses": ["defeated_eikthyr", "defeated_frozenking"]},
+                      {"id": "player-2", "bosses": ["defeated_eikthyr"]},
+                  ]}
+        self.call("POST", "/progress", report, "hook")
+        counts = self.call("GET", "/state", token="control")["boss_player_counts"]
+        self.assertEqual(counts, {"defeated_eikthyr": 2, "defeated_frozenking": 1})
+
+        report["playerBosses"] = [{"id": "player-2", "bosses": []}]
+        self.call("POST", "/progress", report, "hook")
+        counts = self.call("GET", "/state", token="control")["boss_player_counts"]
+        self.assertEqual(counts, {"defeated_eikthyr": 1, "defeated_frozenking": 1})
+
+    def test_progress_counts_each_death_event_once_and_uses_latest_name(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [], "bossKills": [], "milestoneStep": 10,
+                  "deaths": [{"id": "death-1", "playerId": "player-1", "name": "Old Name"}]}
+        self.call("POST", "/progress", report, "hook")
+        self.call("POST", "/progress", report, "hook")
+        report["deaths"] = [{"id": "death-2", "playerId": "player-1", "name": "New Name"},
+                            {"id": "death-3", "playerId": "player-2", "name": "Vivi"},
+                            {"id": "death-4", "playerId": "player-2", "name": "Vivi"}]
+        self.call("POST", "/progress", report, "hook")
+        leaderboard = self.call("GET", "/state", token="control")["death_leaderboard"]
+        self.assertEqual(leaderboard, [{"name": "New Name", "deaths": 2},
+                                       {"name": "Vivi", "deaths": 2}])
+
+    def test_state_exposes_safe_level_and_boss_leaderboards_without_player_ids(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [{"id": "internal-1", "name": "Vivi", "level": 42},
+                              {"id": "internal-2", "name": "Ragnavik", "level": 20}],
+                  "playerBosses": [
+                      {"id": "internal-1", "bosses": ["defeated_eikthyr", "defeated_frozenking"]},
+                      {"id": "internal-2", "bosses": ["defeated_eikthyr",
+                                                        "defeated_frozenking_p3"]}],
+                  "bossKills": [], "milestoneStep": 10}
+        self.call("POST", "/progress", report, "hook")
+        state = self.call("GET", "/state", token="control")
+        self.assertEqual(state["online_count"], 2)
+        self.assertEqual(state["level_leaderboard"][0], {"name": "Vivi", "level": 42})
+        self.assertEqual(state["boss_leaderboard"], [
+            {"name": "Vivi", "bosses": 2}, {"name": "Ragnavik", "bosses": 1}])
+        self.assertNotIn("internal-1", json.dumps(state))
+
+    def test_progress_exposes_world_and_safe_recent_death_details(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [], "bossKills": [], "milestoneStep": 10,
+                  "world": {"day": 120, "dayFraction": 0.5, "activeEvent": "army_eikthyr"},
+                  "deaths": [{"id": "death-world-1", "playerId": "internal-player",
+                              "name": "Vivi", "cause": "EnemyHit: $enemy_troll"}]}
+        self.call("POST", "/progress", report, "hook")
+        state = self.call("GET", "/state", token="control")
+        self.assertEqual(state["world_day"], 120)
+        self.assertEqual(state["world_day_fraction"], 0.5)
+        self.assertEqual(state["active_event"], "army_eikthyr")
+        self.assertEqual(state["recent_deaths"][0]["name"], "Vivi")
+        self.assertEqual(state["recent_deaths"][0]["cause"], "EnemyHit: $enemy_troll")
+        self.assertNotIn("internal-player", json.dumps(state))
+
 
 
 
