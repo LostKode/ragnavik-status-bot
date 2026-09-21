@@ -10,6 +10,7 @@ from discord import app_commands
 
 from bot_api import BOT_TOKEN_FILE, OWNER_ID, control, deliver
 from boss_progress import boss_progress_message
+from death_counter import death_leaderboard_message
 
 PACK_URL = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
 GUIDE_URL = "https://ragnavik.vercel.app/blog/getting-started"
@@ -89,6 +90,16 @@ async def bosses(interaction: discord.Interaction):
         return
     message = boss_progress_message(state)
     await interaction.response.send_message(message[:1900], ephemeral=True)
+
+
+@group.command(name="deaths", description="Show the Ragnavik player death leaderboard")
+async def deaths(interaction: discord.Interaction):
+    try:
+        state = await phoenix("GET", "/state")
+    except (OSError, urllib.error.URLError):
+        await interaction.response.send_message("The death counter is temporarily unavailable.", ephemeral=True)
+        return
+    await interaction.response.send_message(death_leaderboard_message(state)[:1900], ephemeral=True)
 
 
 @group.command(name="guide", description="Show the Ragnavik getting started guide")

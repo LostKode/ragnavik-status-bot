@@ -196,6 +196,20 @@ class ApiTests(unittest.TestCase):
         counts = self.call("GET", "/state", token="control")["boss_player_counts"]
         self.assertEqual(counts, {"defeated_eikthyr": 1, "defeated_frozenking": 1})
 
+    def test_progress_counts_each_death_event_once_and_uses_latest_name(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [], "bossKills": [], "milestoneStep": 10,
+                  "deaths": [{"id": "death-1", "playerId": "player-1", "name": "Old Name"}]}
+        self.call("POST", "/progress", report, "hook")
+        self.call("POST", "/progress", report, "hook")
+        report["deaths"] = [{"id": "death-2", "playerId": "player-1", "name": "New Name"},
+                            {"id": "death-3", "playerId": "player-2", "name": "Vivi"},
+                            {"id": "death-4", "playerId": "player-2", "name": "Vivi"}]
+        self.call("POST", "/progress", report, "hook")
+        leaderboard = self.call("GET", "/state", token="control")["death_leaderboard"]
+        self.assertEqual(leaderboard, [{"name": "New Name", "deaths": 2},
+                                       {"name": "Vivi", "deaths": 2}])
+
 
 
 

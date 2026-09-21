@@ -43,6 +43,8 @@ The authenticated `/progress` endpoint accepts snapshots from the separately mai
 
 The monitor establishes a baseline without posting old achievements. New boss defeats and every ten EpicMMO levels are sent to Longhouse using the character's current in-game name. A stable internal character identifier prevents duplicate posts but is never placed in Discord messages. State persists across game and bot restarts.
 
+Player death events are deduplicated and counted by the same stable internal identifier. `/ragnavik deaths` displays character names and totals without exposing those identifiers.
+
 `/ragnavik bosses` maps all eight standard boss defeat keys, including Kall Fimbulbringer, and shows how many distinct player profiles hold each private progression key. The receiver retains the latest keys reported for previously observed profiles so totals include players who are currently offline.
 
 ## Worker bot
@@ -54,6 +56,7 @@ The bot syncs these slash commands:
 - `/ragnavik latest`: stable Thunderstore page for the newest published modpack.
 - `/ragnavik status`: live, maintenance, offline, or initializing.
 - `/ragnavik bosses`: player totals for each defeated boss.
+- `/ragnavik deaths`: player death leaderboard and total recorded deaths.
 - `/ragnavik guide`: Ragnavik getting started site.
 - `/ragnavik recent`: last five status log entries, owner only.
 - `/ragnavik maintenance_start`: announce a planned window, owner only.

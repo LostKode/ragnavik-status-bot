@@ -297,9 +297,16 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
             if self.path == "/events":
                 self.response(state["pending"][0] if state["pending"] else {})
             else:
-                self.response({key: state.get(key) for key in
-                               ("phase", "maintenance", "boss_keys", "boss_at",
-                                "boss_player_counts")})
+                response = {key: state.get(key) for key in
+                            ("phase", "maintenance", "boss_keys", "boss_at",
+                             "boss_player_counts")}
+                if "death_counts" in state:
+                    names = state.get("player_names", {})
+                    response["death_leaderboard"] = sorted(
+                        ({"name": names.get(player_id, "Unknown Viking"), "deaths": deaths}
+                         for player_id, deaths in state["death_counts"].items()),
+                        key=lambda player: (-player["deaths"], player["name"].casefold()))
+                self.response(response)
 
     def do_POST(self):
         hook = self.path in ("/ready", "/notready", "/bosses", "/progress")
@@ -366,6 +373,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 players = report.get("players", [])
                 player_bosses = report.get("playerBosses")
                 boss_kills = report.get("bossKills", [])
+                deaths = report.get("deaths", [])
                 step = report["milestoneStep"]
                 if not isinstance(instance, str) or not instance:
                     raise ValueError("instance is required")
@@ -384,6 +392,8 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                     raise ValueError("playerBosses must contain at most 256 entries")
                 if not isinstance(boss_kills, list) or len(boss_kills) > 20:
                     raise ValueError("bossKills must contain at most 20 entries")
+                if not isinstance(deaths, list) or len(deaths) > 20:
+                    raise ValueError("deaths must contain at most 20 entries")
                 if not isinstance(step, int) or not 1 <= step <= 100:
                     raise ValueError("milestoneStep must be an integer from 1 to 100")
                 clean_players = []
@@ -423,6 +433,16 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                                     for name in participants)):
                         raise ValueError("bossKills contains an invalid event")
                     clean_boss_kills.append((event_id, key, boss, killer, participants))
+                clean_deaths = []
+                for death in deaths:
+                    event_id = death["id"]
+                    player_id = death["playerId"]
+                    name = death["name"]
+                    if (not isinstance(event_id, str) or not 0 < len(event_id) <= 160 or
+                            not isinstance(player_id, str) or not 0 < len(player_id) <= 80 or
+                            not isinstance(name, str) or not 0 < len(name) <= 80):
+                        raise ValueError("deaths contains an invalid event")
+                    clean_deaths.append((event_id, player_id, name))
             except json.JSONDecodeError:
                 self.error_response(400, "invalid_json", "request body is not valid JSON")
                 return
@@ -492,6 +512,19 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                             counts[key] = counts.get(key, 0) + 1
                     state["boss_player_counts"] = dict(sorted(counts.items()))
                     state["player_bosses_at"] = utc(now())
+                seen_deaths = state.setdefault("death_events", [])
+                seen_death_ids = set(seen_deaths)
+                death_counts = state.setdefault("death_counts", {})
+                for event_id, player_id, name in clean_deaths:
+                    if event_id in seen_death_ids:
+                        continue
+                    death_counts[player_id] = death_counts.get(player_id, 0) + 1
+                    names[player_id] = name
+                    seen_deaths.append(event_id)
+                    seen_death_ids.add(event_id)
+                state["death_events"] = seen_deaths[-2000:]
+                if clean_deaths:
+                    state["deaths_at"] = utc(now())
         elif self.path == "/ack":
             try:
                 event_id = json.loads(raw)["id"]
