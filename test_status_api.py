@@ -227,6 +227,21 @@ class ApiTests(unittest.TestCase):
             {"name": "Vivi", "bosses": 2}, {"name": "Ragnavik", "bosses": 1}])
         self.assertNotIn("internal-1", json.dumps(state))
 
+    def test_progress_exposes_world_and_safe_recent_death_details(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [], "bossKills": [], "milestoneStep": 10,
+                  "world": {"day": 120, "dayFraction": 0.5, "activeEvent": "army_eikthyr"},
+                  "deaths": [{"id": "death-world-1", "playerId": "internal-player",
+                              "name": "Vivi", "cause": "EnemyHit: $enemy_troll"}]}
+        self.call("POST", "/progress", report, "hook")
+        state = self.call("GET", "/state", token="control")
+        self.assertEqual(state["world_day"], 120)
+        self.assertEqual(state["world_day_fraction"], 0.5)
+        self.assertEqual(state["active_event"], "army_eikthyr")
+        self.assertEqual(state["recent_deaths"][0]["name"], "Vivi")
+        self.assertEqual(state["recent_deaths"][0]["cause"], "EnemyHit: $enemy_troll")
+        self.assertNotIn("internal-player", json.dumps(state))
+
 
 
 

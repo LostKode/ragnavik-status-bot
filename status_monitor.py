@@ -300,7 +300,8 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 response = {key: state.get(key) for key in
                             ("phase", "maintenance", "boss_keys", "boss_at",
                              "boss_player_counts", "online_count", "latest_boss",
-                             "client_pack_version")}
+                             "client_pack_version", "world_day", "world_day_fraction",
+                             "active_event", "milestone_history", "recent_deaths")}
                 if "death_counts" in state:
                     names = state.get("player_names", {})
                     response["death_leaderboard"] = sorted(
@@ -391,6 +392,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 player_bosses = report.get("playerBosses")
                 boss_kills = report.get("bossKills", [])
                 deaths = report.get("deaths", [])
+                world = report.get("world")
                 step = report["milestoneStep"]
                 if not isinstance(instance, str) or not instance:
                     raise ValueError("instance is required")
@@ -411,6 +413,15 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                     raise ValueError("bossKills must contain at most 20 entries")
                 if not isinstance(deaths, list) or len(deaths) > 20:
                     raise ValueError("deaths must contain at most 20 entries")
+                if world is not None:
+                    world_day = world["day"]
+                    world_fraction = world["dayFraction"]
+                    active_event = world["activeEvent"]
+                    if (not isinstance(world_day, int) or not 0 <= world_day <= 1000000 or
+                            not isinstance(world_fraction, (int, float)) or
+                            not 0 <= world_fraction <= 1 or
+                            not isinstance(active_event, str) or len(active_event) > 100):
+                        raise ValueError("world contains an invalid day, time, or event")
                 if not isinstance(step, int) or not 1 <= step <= 100:
                     raise ValueError("milestoneStep must be an integer from 1 to 100")
                 clean_players = []
@@ -455,11 +466,13 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                     event_id = death["id"]
                     player_id = death["playerId"]
                     name = death["name"]
+                    cause = death.get("cause", "Unknown")
                     if (not isinstance(event_id, str) or not 0 < len(event_id) <= 160 or
                             not isinstance(player_id, str) or not 0 < len(player_id) <= 80 or
-                            not isinstance(name, str) or not 0 < len(name) <= 80):
+                            not isinstance(name, str) or not 0 < len(name) <= 80 or
+                            not isinstance(cause, str) or not 0 < len(cause) <= 120):
                         raise ValueError("deaths contains an invalid event")
-                    clean_deaths.append((event_id, player_id, name))
+                    clean_deaths.append((event_id, player_id, name, cause))
             except json.JSONDecodeError:
                 self.error_response(400, "invalid_json", "request body is not valid JSON")
                 return
@@ -486,6 +499,9 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                             continue
                         name = BOSS_NAMES.get(key, key.removeprefix("defeated_").replace("_", " ").title())
                         state["latest_boss"] = name
+                        history = state.setdefault("milestone_history", [])
+                        history.append({"at": utc(now()), "message": f"{name} was defeated"})
+                        state["milestone_history"] = history[-50:]
                         record(state, "boss_milestone", key,
                                [("longhouse", f"{server} milestone: {name} has been defeated!")])
                 state["boss_keys"] = sorted(current_bosses)
@@ -498,6 +514,9 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                         continue
                     boss_name = BOSS_NAMES.get(key, boss)
                     state["latest_boss"] = boss_name
+                    history = state.setdefault("milestone_history", [])
+                    history.append({"at": utc(now()), "message": f"{boss_name} was defeated by {killer}"})
+                    state["milestone_history"] = history[-50:]
                     party = ", ".join(participants) if participants else "No nearby players recorded"
                     message = (f"{server} milestone: {boss_name} has been defeated! "
                                f"Killing blow: {killer}. Party: {party}.")
@@ -520,6 +539,10 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                         milestones[player_id] = threshold
                         record(state, "player_milestone", f"{player_id}:{threshold}",
                                [("longhouse", f"{name} reached EpicMMO level {threshold}!")])
+                        history = state.setdefault("milestone_history", [])
+                        history.append({"at": utc(now()),
+                                        "message": f"{name} reached EpicMMO level {threshold}"})
+                        state["milestone_history"] = history[-50:]
                     names[player_id] = name
                     levels[player_id] = level
                 state["online_count"] = len(clean_players)
@@ -537,16 +560,24 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 seen_deaths = state.setdefault("death_events", [])
                 seen_death_ids = set(seen_deaths)
                 death_counts = state.setdefault("death_counts", {})
-                for event_id, player_id, name in clean_deaths:
+                recent_deaths = state.setdefault("recent_deaths", [])
+                for event_id, player_id, name, cause in clean_deaths:
                     if event_id in seen_death_ids:
                         continue
                     death_counts[player_id] = death_counts.get(player_id, 0) + 1
                     names[player_id] = name
+                    recent_deaths.append({"at": utc(now()), "name": name, "cause": cause})
                     seen_deaths.append(event_id)
                     seen_death_ids.add(event_id)
                 state["death_events"] = seen_deaths[-2000:]
+                state["recent_deaths"] = recent_deaths[-50:]
                 if clean_deaths:
                     state["deaths_at"] = utc(now())
+                if world is not None:
+                    state["world_day"] = world_day
+                    state["world_day_fraction"] = world_fraction
+                    state["active_event"] = active_event
+                    state["world_at"] = utc(now())
         elif self.path == "/ack":
             try:
                 event_id = json.loads(raw)["id"]

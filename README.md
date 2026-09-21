@@ -60,6 +60,11 @@ The bot syncs these slash commands:
 - `/ragnavik stats`: server status, online count, deaths, latest boss, and client pack version.
 - `/ragnavik levels`: EpicMMO level leaderboard.
 - `/ragnavik bossboard`: leaderboard by distinct standard bosses defeated.
+- `/ragnavik online`: current player count without exposing names.
+- `/ragnavik records`: highest level, most bosses defeated, and most deaths.
+- `/ragnavik milestones`: recent boss and EpicMMO milestones.
+- `/ragnavik world`: world day, approximate world time, and active raid.
+- `/ragnavik graveyard`: recent deaths and causes without location data.
 - `/ragnavik guide`: Ragnavik getting started site.
 - `/ragnavik recent`: last five status log entries, owner only.
 - `/ragnavik maintenance_start`: announce a planned window, owner only.
