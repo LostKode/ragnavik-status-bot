@@ -175,6 +175,13 @@ class ApiTests(unittest.TestCase):
         self.assertGreater(len(json.dumps(report).encode()), 16384)
         self.call("POST", "/progress", report, "hook")
 
+    def test_progress_accepts_omitted_empty_arrays_from_unity_json(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "milestoneStep": 10}
+        self.call("POST", "/progress", report, "hook")
+
+
+
 
 if __name__ == "__main__":
     unittest.main()
