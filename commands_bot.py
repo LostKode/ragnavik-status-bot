@@ -11,6 +11,7 @@ from discord import app_commands
 from bot_api import BOT_TOKEN_FILE, OWNER_ID, control, deliver
 from boss_progress import boss_progress_message
 from death_counter import death_leaderboard_message
+from player_stats import boss_leaderboard_message, level_leaderboard_message, server_stats_message
 
 PACK_URL = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
 GUIDE_URL = "https://ragnavik.vercel.app/blog/getting-started"
@@ -100,6 +101,35 @@ async def deaths(interaction: discord.Interaction):
         await interaction.response.send_message("The death counter is temporarily unavailable.", ephemeral=True)
         return
     await interaction.response.send_message(death_leaderboard_message(state)[:1900], ephemeral=True)
+
+
+async def progress_state(interaction, unavailable):
+    try:
+        return await phoenix("GET", "/state")
+    except (OSError, urllib.error.URLError):
+        await interaction.response.send_message(unavailable, ephemeral=True)
+        return None
+
+
+@group.command(name="stats", description="Show a compact Ragnavik server summary")
+async def stats(interaction: discord.Interaction):
+    state = await progress_state(interaction, "Server stats are temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(server_stats_message(state)[:1900], ephemeral=True)
+
+
+@group.command(name="levels", description="Show the EpicMMO level leaderboard")
+async def levels(interaction: discord.Interaction):
+    state = await progress_state(interaction, "The level leaderboard is temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(level_leaderboard_message(state)[:1900], ephemeral=True)
+
+
+@group.command(name="bossboard", description="Show who has defeated the most world bosses")
+async def bossboard(interaction: discord.Interaction):
+    state = await progress_state(interaction, "The boss leaderboard is temporarily unavailable.")
+    if state is not None:
+        await interaction.response.send_message(boss_leaderboard_message(state)[:1900], ephemeral=True)
 
 
 @group.command(name="guide", description="Show the Ragnavik getting started guide")

@@ -299,13 +299,30 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
             else:
                 response = {key: state.get(key) for key in
                             ("phase", "maintenance", "boss_keys", "boss_at",
-                             "boss_player_counts")}
+                             "boss_player_counts", "online_count", "latest_boss",
+                             "client_pack_version")}
                 if "death_counts" in state:
                     names = state.get("player_names", {})
                     response["death_leaderboard"] = sorted(
                         ({"name": names.get(player_id, "Unknown Viking"), "deaths": deaths}
                          for player_id, deaths in state["death_counts"].items()),
                         key=lambda player: (-player["deaths"], player["name"].casefold()))
+                    response["total_deaths"] = sum(state["death_counts"].values())
+                if "player_levels" in state:
+                    names = state.get("player_names", {})
+                    response["level_leaderboard"] = sorted(
+                        ({"name": names[player_id], "level": level}
+                         for player_id, level in state["player_levels"].items()
+                         if player_id in names),
+                        key=lambda player: (-player["level"], player["name"].casefold()))
+                if "player_boss_keys" in state:
+                    names = state.get("player_names", {})
+                    response["boss_leaderboard"] = sorted(
+                        ({"name": names[player_id],
+                          "bosses": len(set(keys) & set(BOSS_NAMES))}
+                         for player_id, keys in state["player_boss_keys"].items()
+                         if player_id in names),
+                        key=lambda player: (-player["bosses"], player["name"].casefold()))
                 self.response(response)
 
     def do_POST(self):
@@ -468,6 +485,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                         if key in received_kill_keys or key in attributed_boss_keys:
                             continue
                         name = BOSS_NAMES.get(key, key.removeprefix("defeated_").replace("_", " ").title())
+                        state["latest_boss"] = name
                         record(state, "boss_milestone", key,
                                [("longhouse", f"{server} milestone: {name} has been defeated!")])
                 state["boss_keys"] = sorted(current_bosses)
@@ -479,6 +497,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                     if event_id in seen_set:
                         continue
                     boss_name = BOSS_NAMES.get(key, boss)
+                    state["latest_boss"] = boss_name
                     party = ", ".join(participants) if participants else "No nearby players recorded"
                     message = (f"{server} milestone: {boss_name} has been defeated! "
                                f"Killing blow: {killer}. Party: {party}.")
@@ -492,6 +511,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
 
                 milestones = state.setdefault("player_milestones", {})
                 names = state.setdefault("player_names", {})
+                levels = state.setdefault("player_levels", {})
                 for player_id, name, level in clean_players:
                     threshold = level // step * step
                     if player_id not in milestones:
@@ -501,6 +521,8 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                         record(state, "player_milestone", f"{player_id}:{threshold}",
                                [("longhouse", f"{name} reached EpicMMO level {threshold}!")])
                     names[player_id] = name
+                    levels[player_id] = level
+                state["online_count"] = len(clean_players)
                 state["players_at"] = utc(now())
                 if player_bosses is not None:
                     known_player_bosses = state.setdefault("player_boss_keys", {})

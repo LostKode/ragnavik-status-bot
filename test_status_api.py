@@ -210,6 +210,23 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(leaderboard, [{"name": "New Name", "deaths": 2},
                                        {"name": "Vivi", "deaths": 2}])
 
+    def test_state_exposes_safe_level_and_boss_leaderboards_without_player_ids(self):
+        report = {"server": "Ragnavik", "instance": "abcdef123456", "bosses": [],
+                  "players": [{"id": "internal-1", "name": "Vivi", "level": 42},
+                              {"id": "internal-2", "name": "Ragnavik", "level": 20}],
+                  "playerBosses": [
+                      {"id": "internal-1", "bosses": ["defeated_eikthyr", "defeated_frozenking"]},
+                      {"id": "internal-2", "bosses": ["defeated_eikthyr",
+                                                        "defeated_frozenking_p3"]}],
+                  "bossKills": [], "milestoneStep": 10}
+        self.call("POST", "/progress", report, "hook")
+        state = self.call("GET", "/state", token="control")
+        self.assertEqual(state["online_count"], 2)
+        self.assertEqual(state["level_leaderboard"][0], {"name": "Vivi", "level": 42})
+        self.assertEqual(state["boss_leaderboard"], [
+            {"name": "Vivi", "bosses": 2}, {"name": "Ragnavik", "bosses": 1}])
+        self.assertNotIn("internal-1", json.dumps(state))
+
 
 
 
