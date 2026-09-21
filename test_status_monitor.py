@@ -49,7 +49,9 @@ class TransitionTests(unittest.TestCase):
                          ["logs", "dm"])
         log_message = self.state["pending"][0]["message"]
         private_message = self.state["pending"][1]["message"]
-        self.assertIn("Valheim host is down", log_message)
+        self.assertNotIn("Valheim host is down", log_message)
+        for term in ("swarm", "task", "container", "node", "replica"):
+            self.assertNotIn(term, log_message.lower())
         self.assertIn("Valheim host is down", private_message)
         monitor.reconcile(self.state, self.running, 1500)
         monitor.reconcile(self.state, self.running, 1530)
