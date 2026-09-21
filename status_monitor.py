@@ -361,7 +361,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 instance = report["instance"]
                 server = report["server"]
                 bosses = report["bosses"]
-                players = report["players"]
+                players = report.get("players", [])
                 boss_kills = report.get("bossKills", [])
                 step = report["milestoneStep"]
                 if not isinstance(instance, str) or not instance:
