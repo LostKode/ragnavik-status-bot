@@ -103,7 +103,17 @@ def docker(*args):
 
 
 
+
 def probe():
+    if PROBE_MODE == "hooks":
+        with locked_state() as state:
+            container = state.get("ready_container", "")
+            ready_at = state.get("ready_at", "")
+            stopped_at = state.get("stopped_at", "")
+        healthy = bool(container and (not stopped_at or ready_at > stopped_at))
+        return {"healthy": healthy,
+                "reason": "game listener has not reported ready" if not healthy else "ready",
+                "task": "", "container": container}
     try:
         node_state = docker("node", "inspect", NODE, "--format", "{{.Status.State}}")
         lines = docker("service", "ps", SERVICE, "--filter", "desired-state=running",

@@ -27,6 +27,22 @@ class TransitionTests(unittest.TestCase):
         import json
         return [json.loads(line)["kind"] for line in monitor.EVENT_FILE.read_text().splitlines()]
 
+    def test_hook_probe_uses_persisted_listener_state_without_docker(self):
+        original_mode = monitor.PROBE_MODE
+        original_locked_state = monitor.locked_state
+        self.addCleanup(setattr, monitor, "PROBE_MODE", original_mode)
+        self.addCleanup(setattr, monitor, "locked_state", original_locked_state)
+        monitor.PROBE_MODE = "hooks"
+        monitor.locked_state = lambda: _StateContext({
+            "ready_container": "abcdef123456",
+            "ready_at": "2026-09-22T01:00:00+00:00",
+            "stopped_at": "2026-09-22T00:00:00+00:00",
+        })
+        observation = monitor.probe()
+        self.assertTrue(observation["healthy"])
+        self.assertEqual(observation["container"], "abcdef123456")
+
+
     def test_initial_running_task_stays_quiet_until_ready_hook(self):
         monitor.reconcile(self.state, self.running, 1000)
         self.assertEqual(self.state["phase"], "unknown")
