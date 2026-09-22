@@ -110,6 +110,17 @@ class ApiTests(unittest.TestCase):
         self.call("POST", "/progress", baseline, "hook")
         self.assertEqual(self.call("GET", "/events", token="control"), {})
 
+    def test_first_observation_exactly_on_level_milestone_announces(self):
+        progress = {
+            "instance": "abcdef123456", "server": "Ragnavik", "bosses": [],
+            "players": [{"id": "player-1", "name": "Ragnavik", "level": 10}],
+            "milestoneStep": 10,
+        }
+        self.call("POST", "/progress", progress, "hook")
+        event = self.call("GET", "/events", token="control")
+        self.assertEqual(event["destination"], "longhouse")
+        self.assertEqual(event["message"], "Ragnavik reached EpicMMO level 10!")
+
     def test_boss_kill_announces_each_players_first_defeat_only(self):
         baseline = {
             "server": "Ragnavik",
