@@ -41,7 +41,7 @@ Start the watcher only after both local token files exist. It stays quiet when f
 
 The authenticated `/progress` endpoint accepts snapshots from the separately maintained Ragnavik Progress server mod. Ragnavik's endpoint and token path belong only in the live server configuration and must never be committed here.
 
-The monitor establishes a baseline without posting old achievements. New boss defeats and every ten EpicMMO levels are sent to Longhouse using the character's current in-game name. A stable internal character identifier prevents duplicate posts but is never placed in Discord messages. State persists across game and bot restarts.
+The monitor establishes a baseline without posting old achievements. A character's first recorded defeat of each boss and every ten EpicMMO levels are sent to Longhouse using the character's current in-game name. Later farm kills of that boss by the same character stay silent. Stable internal state prevents duplicate posts and is never placed in Discord messages. State persists across game and bot restarts.
 
 Player death events are deduplicated and counted by the same stable internal identifier. `/ragnavik deaths` displays character names and totals without exposing those identifiers.
 

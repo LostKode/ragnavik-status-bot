@@ -110,7 +110,7 @@ class ApiTests(unittest.TestCase):
         self.call("POST", "/progress", baseline, "hook")
         self.assertEqual(self.call("GET", "/events", token="control"), {})
 
-    def test_boss_kill_lists_killer_and_nearby_ingame_names_once(self):
+    def test_boss_kill_announces_each_players_first_defeat_only(self):
         baseline = {
             "server": "Ragnavik",
             "instance": "abcdef123456",
@@ -132,11 +132,25 @@ class ApiTests(unittest.TestCase):
         event = self.call("GET", "/events", token="control")
         self.assertEqual(event["destination"], "longhouse")
         self.assertEqual(event["message"],
-                         "Ragnavik milestone: Eikthyr has been defeated! "
-                         "Killing blow: Ragnavik. Party: Jamrican, Ragnavik.")
+                         "Ragnavik milestone: Ragnavik defeated Eikthyr for the first time! "
+                         "Party: Jamrican, Ragnavik.")
         self.call("POST", "/ack", {"id": event["id"]}, "control")
         self.call("POST", "/progress", report, "hook")
         self.assertEqual(self.call("GET", "/events", token="control"), {})
+
+        # A later farm kill by the same player is recorded but stays silent.
+        report["bossKills"][0]["id"] = "boss-zdo-2"
+        self.call("POST", "/progress", report, "hook")
+        self.assertEqual(self.call("GET", "/events", token="control"), {})
+
+        # Another player's first defeat is a new Longhouse milestone.
+        report["bossKills"][0].update({"id": "boss-zdo-3", "killer": "Jamrican"})
+        self.call("POST", "/progress", report, "hook")
+        event = self.call("GET", "/events", token="control")
+        self.assertEqual(event["destination"], "longhouse")
+        self.assertIn("Jamrican defeated Eikthyr for the first time", event["message"])
+        self.call("POST", "/ack", {"id": event["id"]}, "control")
+
 
         # The later world-key update must not create a second generic boss post.
         report["bossKills"] = []

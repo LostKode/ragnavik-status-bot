@@ -509,24 +509,31 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
 
                 seen_kills = state.setdefault("boss_kill_events", [])
                 seen_set = set(seen_kills)
+                announced_player_bosses = set(state.get("announced_player_bosses", []))
                 for event_id, key, boss, killer, participants in clean_boss_kills:
                     if event_id in seen_set:
                         continue
                     boss_name = BOSS_NAMES.get(key, boss)
-                    state["latest_boss"] = boss_name
-                    history = state.setdefault("milestone_history", [])
-                    history.append({"at": utc(now()), "message": f"{boss_name} was defeated by {killer}"})
-                    state["milestone_history"] = history[-50:]
-                    party = ", ".join(participants) if participants else "No nearby players recorded"
-                    message = (f"{server} milestone: {boss_name} has been defeated! "
-                               f"Killing blow: {killer}. Party: {party}.")
-                    record(state, "boss_kill", event_id, [("longhouse", message)])
+                    boss_identity = key or boss_name.casefold()
+                    player_boss = f"{killer.casefold()}\\0{boss_identity}"
+                    if player_boss not in announced_player_bosses:
+                        state["latest_boss"] = boss_name
+                        history = state.setdefault("milestone_history", [])
+                        history.append({"at": utc(now()),
+                                        "message": f"{killer} defeated {boss_name} for the first time"})
+                        state["milestone_history"] = history[-50:]
+                        party = ", ".join(participants) if participants else "No nearby players recorded"
+                        message = (f"{server} milestone: {killer} defeated {boss_name} "
+                                   f"for the first time! Party: {party}.")
+                        record(state, "boss_kill", event_id, [("longhouse", message)])
+                        announced_player_bosses.add(player_boss)
                     seen_kills.append(event_id)
                     seen_set.add(event_id)
                     if key:
                         attributed_boss_keys.add(key)
                 state["boss_kill_events"] = seen_kills[-500:]
                 state["attributed_boss_keys"] = sorted(attributed_boss_keys)
+                state["announced_player_bosses"] = sorted(announced_player_bosses)
 
                 milestones = state.setdefault("player_milestones", {})
                 names = state.setdefault("player_names", {})
