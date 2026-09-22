@@ -91,6 +91,10 @@ def docker(*args):
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or f"docker {' '.join(args)} failed")
     return result.stdout.strip()
+
+
+
+def probe():
     if PROBE_MODE == "hooks":
         with locked_state() as state:
             container = state.get("ready_container", "")
@@ -100,10 +104,6 @@ def docker(*args):
         return {"healthy": healthy,
                 "reason": "game listener has not reported ready" if not healthy else "ready",
                 "task": "", "container": container}
-
-
-
-def probe():
     try:
         node_state = docker("node", "inspect", NODE, "--format", "{{.Status.State}}")
         lines = docker("service", "ps", SERVICE, "--filter", "desired-state=running",
