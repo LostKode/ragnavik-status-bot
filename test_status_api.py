@@ -159,11 +159,18 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/events", token="control"), {})
 
     def test_maintenance_notice_queues_one_event_and_acknowledges(self):
-        self.call("POST", "/maintenance/start", {"reason": "UI update", "hours": 1}, "control")
+        self.call("POST", "/maintenance/start", {"reason": "UI update", "hours": 1, "countdownMinutes": 10}, "control")
         item = self.call("GET", "/events", token="control")
         self.assertEqual(item["destination"], "announcements")
         self.assertEqual(self.call("GET", "/state", token="control")["phase"], "maintenance")
         self.call("POST", "/ack", {"id": item["id"]}, "control")
+        game = self.call("GET", "/maintenance/game", token="hook")
+        self.assertTrue(game["active"])
+        self.assertEqual(game["reason"], "UI update")
+        self.assertIsInstance(game["shutdownAt"], float)
+        self.call("POST", "/maintenance/end", token="control")
+        self.assertFalse(self.call("GET", "/maintenance/game", token="hook")["active"])
+
         self.assertEqual(self.call("GET", "/events", token="control"), {})
         self.assertEqual(len(self.call("GET", "/recent", token="control")), 1)
 
