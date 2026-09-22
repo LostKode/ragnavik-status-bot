@@ -302,8 +302,16 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path not in ("/state", "/events", "/recent"):
+        if self.path not in ("/state", "/events", "/recent", "/maintenance/game"):
             self.send_error(404)
+            return
+        if self.path == "/maintenance/game":
+            if not self.authorized(HOOK_TOKEN_FILE, "X-Ragnavik-Token"):
+                return
+            with locked_state() as state:
+                maintenance = state.get("maintenance") or {}
+                self.response({"active": state.get("phase") == "maintenance" and not maintenance.get("finished", False),
+                               "shutdownAt": maintenance.get("shutdown_at"), "reason": maintenance.get("reason", "")})
             return
         if not self.authorized(CONTROL_TOKEN_FILE, "X-Ragnavik-Control"):
             return
@@ -621,9 +629,11 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 request = json.loads(raw)
                 reason = request["reason"]
                 hours = float(request.get("hours", 6))
-                if not isinstance(reason, str) or not 0 < len(reason) <= 200 or not 0 < hours <= 72:
+                countdown_minutes = float(request.get("countdownMinutes", 10))
+                if (not isinstance(reason, str) or not 0 < len(reason) <= 200 or
+                        not 0 < hours <= 72 or not 0.5 <= countdown_minutes <= 60):
                     raise ValueError
-                maintenance_start(reason, hours)
+                maintenance_start(reason, hours, countdown_minutes)
             except (ValueError, KeyError, TypeError):
                 self.send_error(400)
                 return
@@ -650,12 +660,13 @@ def run():
         time.sleep(POLL_SECONDS)
 
 
-def maintenance_start(reason, hours):
+def maintenance_start(reason, hours, countdown_minutes=10):
     with locked_state() as state:
         if state.get("maintenance") and state["phase"] == "maintenance":
             raise RuntimeError("maintenance is already active")
-        state["maintenance"] = {"reason": reason, "until": now() + hours * 3600,
-                                "finished": False}
+        started = now()
+        state["maintenance"] = {"reason": reason, "until": started + hours * 3600,
+                                "shutdown_at": started + countdown_minutes * 60, "finished": False}
         state["phase"] = "maintenance"
         state.pop("down_since", None)
         record(state, "maintenance", reason,

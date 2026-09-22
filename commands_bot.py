@@ -189,16 +189,20 @@ async def recent(interaction: discord.Interaction):
 
 
 @group.command(name="maintenance_start", description="Announce a planned maintenance window")
-@app_commands.describe(reason="What is being changed", hours="Maximum planned duration")
-async def maintenance_start_command(interaction: discord.Interaction, reason: str, hours: float = 6.0):
+@app_commands.describe(reason="What is being changed", countdown_minutes="Minutes before shutdown", hours="Maximum planned duration")
+async def maintenance_start_command(interaction: discord.Interaction, reason: str,
+                                    countdown_minutes: float = 10.0, hours: float = 6.0):
     if interaction.user.id != int(OWNER_ID):
         await interaction.response.send_message("This command is for the server owner.", ephemeral=True)
         return
     if not 0 < hours <= 72:
         await interaction.response.send_message("Duration must be between 0 and 72 hours.", ephemeral=True)
         return
+    if not 0.5 <= countdown_minutes <= 60:
+        await interaction.response.send_message("Countdown must be between 30 seconds and 60 minutes.", ephemeral=True)
+        return
     try:
-        await phoenix("POST", "/maintenance/start", {"reason": reason, "hours": hours})
+        await phoenix("POST", "/maintenance/start", {"reason": reason, "hours": hours, "countdownMinutes": countdown_minutes})
     except urllib.error.HTTPError as exc:
         await interaction.response.send_message(f"Maintenance could not start (HTTP {exc.code}).", ephemeral=True)
         return
@@ -206,7 +210,7 @@ async def maintenance_start_command(interaction: discord.Interaction, reason: st
         await interaction.response.send_message("Status monitor is temporarily unavailable.", ephemeral=True)
         return
     await interaction.response.send_message(
-        "Maintenance notice queued. Outage alerts are suppressed during this window.", ephemeral=True)
+        f"Maintenance notice queued. In-game shutdown countdown starts at {countdown_minutes:g} minutes.", ephemeral=True)
 
 
 @group.command(name="maintenance_end", description="Finish maintenance and wait for the server to become live")
