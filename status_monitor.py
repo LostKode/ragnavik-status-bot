@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Low-noise Ragnavik status and maintenance monitor for the Swarm manager."""
+"""Low-noise Ragnavik status and maintenance monitor."""
 import argparse
 import contextlib
 import datetime as dt
@@ -20,6 +20,7 @@ STATE_DIR = Path(os.environ.get("RAGNAVIK_STATUS_DIR", "/var/lib/ragnavik-status
 STATE_FILE = STATE_DIR / "state.json"
 LOCK_FILE = STATE_DIR / "state.lock"
 EVENT_FILE = STATE_DIR / "events.jsonl"
+PROBE_MODE = os.environ.get("RAGNAVIK_PROBE_MODE", "swarm")
 SERVICE = os.environ.get("RAGNAVIK_SERVICE", "ragnavik_valheim")
 NODE = os.environ.get("RAGNAVIK_NODE", "fenrir")
 HOOK_TOKEN_FILE = os.environ.get("RAGNAVIK_HOOK_TOKEN_FILE", "/etc/ragnavik-status/hook-token")
@@ -90,6 +91,16 @@ def docker(*args):
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or f"docker {' '.join(args)} failed")
     return result.stdout.strip()
+    if PROBE_MODE == "hooks":
+        with locked_state() as state:
+            container = state.get("ready_container", "")
+            ready_at = state.get("ready_at", "")
+            stopped_at = state.get("stopped_at", "")
+        healthy = bool(container and (not stopped_at or ready_at > stopped_at))
+        return {"healthy": healthy,
+                "reason": "game listener has not reported ready" if not healthy else "ready",
+                "task": "", "container": container}
+
 
 
 def probe():
