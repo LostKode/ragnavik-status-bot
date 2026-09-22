@@ -571,6 +571,9 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                     threshold = level // step * step
                     if player_id not in milestones:
                         milestones[player_id] = threshold
+                        if threshold >= step and level == threshold:
+                            record(state, "player_milestone", f"{player_id}:{threshold}",
+                                   [("longhouse", f"{name} reached EpicMMO level {threshold}!")])
                     elif threshold > milestones[player_id]:
                         milestones[player_id] = threshold
                         record(state, "player_milestone", f"{player_id}:{threshold}",
