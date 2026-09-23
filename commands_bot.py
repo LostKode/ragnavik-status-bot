@@ -12,7 +12,7 @@ from bot_api import BOT_TOKEN_FILE, OWNER_ID, control, deliver
 from boss_progress import boss_progress_message
 from death_counter import death_leaderboard_message
 from player_stats import boss_leaderboard_message, level_leaderboard_message, server_stats_message
-from more_commands import graveyard_message, milestones_message, online_message, records_message, world_message
+from more_commands import graveyard_message, logs_message, milestones_message, online_message, records_message, world_message
 
 PACK_URL = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
 GUIDE_URL = "https://ragnavik.vercel.app/blog/getting-started"
@@ -171,6 +171,11 @@ async def graveyard(interaction: discord.Interaction):
 @group.command(name="guide", description="Show the Ragnavik getting started guide")
 async def guide(interaction: discord.Interaction):
     await interaction.response.send_message(f"Ragnavik guide: {GUIDE_URL}", ephemeral=True)
+
+
+@group.command(name="logs", description="Show how to send a Valheim log for troubleshooting")
+async def logs(interaction: discord.Interaction):
+    await interaction.response.send_message(logs_message(), ephemeral=True)
 
 
 @group.command(name="recent", description="Show recent server status changes")

@@ -1,5 +1,7 @@
 """Formatting for additional player-facing Ragnavik commands."""
 
+LOG_GUIDE_URL = "https://www.ragnavik.com/blog/sending-valheim-logs"
+
 CAUSE_NAMES = {
     "EnemyHit": "Enemy attack",
     "PlayerHit": "Player attack",
@@ -70,3 +72,17 @@ def graveyard_message(state):
     return "Recent Ragnavik deaths:\n" + "\n".join(
         f"{item['name']}: {friendly_label(item['cause'])} at {item['at']}"
         for item in deaths[-10:][::-1])
+
+
+def logs_message():
+    return (
+        "Need to report a Ragnavik problem?\n"
+        "1. Reproduce it once, if safe.\n"
+        "2. Note the time, then close Valheim.\n"
+        "3. In Gale, open the profile you used and find BepInEx/LogOutput.log.\n"
+        "4. Attach the file in #help-and-support with what happened, what you expected, "
+        "and whether it repeats.\n"
+        "Do not launch Valheim again before copying the log. If the file is too large, "
+        "attach it as a ZIP.\n"
+        f"Full guide: {LOG_GUIDE_URL}"
+    )

@@ -1,6 +1,6 @@
 import unittest
 
-from more_commands import graveyard_message, milestones_message, online_message, records_message, world_message
+from more_commands import graveyard_message, logs_message, milestones_message, online_message, records_message, world_message
 
 
 class MoreCommandTests(unittest.TestCase):
@@ -28,6 +28,15 @@ class MoreCommandTests(unittest.TestCase):
             {"at": "2026-09-21T00:00:00+00:00", "name": "Vivi",
              "cause": "EnemyHit: $enemy_troll"}]})
         self.assertIn("Vivi: Enemy attack: Enemy Troll", graveyard)
+
+    def test_logs_message_has_complete_submission_checklist(self):
+        message = logs_message()
+        self.assertIn("BepInEx/LogOutput.log", message)
+        self.assertIn("#help-and-support", message)
+        self.assertIn("close Valheim", message)
+        self.assertIn("what you expected", message)
+        self.assertIn("https://www.ragnavik.com/blog/sending-valheim-logs", message)
+        self.assertLessEqual(len(message), 1900)
 
 
 if __name__ == "__main__":

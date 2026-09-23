@@ -8,7 +8,7 @@ The container image contains application code only. Deployment specific addresse
 
 * Persistent status, maintenance, and recovery tracking
 * Authenticated readiness, progression, and anti cheat endpoints
-* Discord slash commands for server status, player records, world state, and maintenance
+* Discord slash commands for server status, player records, world state, log submission help, and maintenance
 * Deduplicated boss, level, and death milestones
 * Quiet client pack release monitoring
 * Durable event queues that survive bot restarts
@@ -49,7 +49,7 @@ Keep the watcher endpoint on a trusted network. Do not expose it directly to the
 
 ## Discord commands
 
-The bot provides status, bosses, deaths, statistics, levels, records, milestones, world state, recent events, and maintenance commands under `/ragnavik`. Administrative commands check `DISCORD_OWNER_ID` and use ephemeral replies.
+The bot provides status, bosses, deaths, statistics, levels, records, milestones, world state, log submission guidance, recent events, and maintenance commands under `/ragnavik`. Players can use `/ragnavik logs` for a short issue report checklist and a link to the full website guide. Administrative commands check `DISCORD_OWNER_ID` and use ephemeral replies.
 
 ## Security model
 
