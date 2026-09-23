@@ -651,7 +651,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
 
 
 def run():
-    bind = os.environ.get("RAGNAVIK_HOOK_BIND", "192.168.86.21")
+    bind = os.environ.get("RAGNAVIK_HOOK_BIND", "127.0.0.1")
     server = http.server.ThreadingHTTPServer((bind, 8787), StatusHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=client_pack_loop, daemon=True).start()
