@@ -1,4 +1,4 @@
-"""Authenticated Phoenix control API and Discord message delivery on the worker."""
+"""Authenticated status control API and Discord message delivery on the worker."""
 import json
 import os
 from pathlib import Path

@@ -6,8 +6,8 @@ Requires=docker.service
 
 [Service]
 Type=simple
-User=klastic
-Group=klastic
+User=ragnavik-status
+Group=ragnavik-status
 SupplementaryGroups=docker
 StateDirectory=ragnavik-status
 EnvironmentFile=/etc/ragnavik-status/status.env

@@ -16,7 +16,7 @@ from more_commands import graveyard_message, milestones_message, online_message,
 
 PACK_URL = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
 GUIDE_URL = "https://ragnavik.vercel.app/blog/getting-started"
-async def phoenix(method, path, payload=None):
+async def status_api(method, path, payload=None):
     return await asyncio.to_thread(control, method, path, payload)
 
 
@@ -44,10 +44,10 @@ class RagnavikBot(discord.Client):
                     await asyncio.to_thread(deliver, item)
                     await asyncio.to_thread(self.anticheat_queue.ack, item["id"])
                 else:
-                    item = await phoenix("GET", "/events")
+                    item = await status_api("GET", "/events")
                     if item:
                         await asyncio.to_thread(deliver, item)
-                        await phoenix("POST", "/ack", {"id": item["id"]})
+                        await status_api("POST", "/ack", {"id": item["id"]})
             except (OSError, ValueError, RuntimeError, urllib.error.URLError) as exc:
                 print(f"Ragnavik delivery pending: {exc}", flush=True)
             await asyncio.sleep(5)
@@ -67,7 +67,7 @@ async def latest(interaction: discord.Interaction):
 @group.command(name="status", description="Show whether the server is live or in maintenance")
 async def status(interaction: discord.Interaction):
     try:
-        state = await phoenix("GET", "/state")
+        state = await status_api("GET", "/state")
     except (OSError, urllib.error.URLError):
         await interaction.response.send_message("Server status is temporarily unavailable.", ephemeral=True)
         return
@@ -86,7 +86,7 @@ async def status(interaction: discord.Interaction):
 @group.command(name="bosses", description="Show how many players have defeated each world boss")
 async def bosses(interaction: discord.Interaction):
     try:
-        state = await phoenix("GET", "/state")
+        state = await status_api("GET", "/state")
     except (OSError, urllib.error.URLError):
         await interaction.response.send_message("Boss progress is temporarily unavailable.", ephemeral=True)
         return
@@ -97,7 +97,7 @@ async def bosses(interaction: discord.Interaction):
 @group.command(name="deaths", description="Show the Ragnavik player death leaderboard")
 async def deaths(interaction: discord.Interaction):
     try:
-        state = await phoenix("GET", "/state")
+        state = await status_api("GET", "/state")
     except (OSError, urllib.error.URLError):
         await interaction.response.send_message("The death counter is temporarily unavailable.", ephemeral=True)
         return
@@ -106,7 +106,7 @@ async def deaths(interaction: discord.Interaction):
 
 async def progress_state(interaction, unavailable):
     try:
-        return await phoenix("GET", "/state")
+        return await status_api("GET", "/state")
     except (OSError, urllib.error.URLError):
         await interaction.response.send_message(unavailable, ephemeral=True)
         return None
@@ -179,7 +179,7 @@ async def recent(interaction: discord.Interaction):
         await interaction.response.send_message("This command is for the server owner.", ephemeral=True)
         return
     try:
-        entries = await phoenix("GET", "/recent")
+        entries = await status_api("GET", "/recent")
     except (OSError, urllib.error.URLError):
         await interaction.response.send_message("Status history is temporarily unavailable.", ephemeral=True)
         return
@@ -202,7 +202,7 @@ async def maintenance_start_command(interaction: discord.Interaction, reason: st
         await interaction.response.send_message("Countdown must be between 30 seconds and 60 minutes.", ephemeral=True)
         return
     try:
-        await phoenix("POST", "/maintenance/start", {"reason": reason, "hours": hours, "countdownMinutes": countdown_minutes})
+        await status_api("POST", "/maintenance/start", {"reason": reason, "hours": hours, "countdownMinutes": countdown_minutes})
     except urllib.error.HTTPError as exc:
         await interaction.response.send_message(f"Maintenance could not start (HTTP {exc.code}).", ephemeral=True)
         return
@@ -219,7 +219,7 @@ async def maintenance_end_command(interaction: discord.Interaction):
         await interaction.response.send_message("This command is for the server owner.", ephemeral=True)
         return
     try:
-        await phoenix("POST", "/maintenance/end")
+        await status_api("POST", "/maintenance/end")
     except urllib.error.HTTPError as exc:
         await interaction.response.send_message(f"Maintenance could not end (HTTP {exc.code}).", ephemeral=True)
         return
