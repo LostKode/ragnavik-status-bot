@@ -16,6 +16,12 @@ class DeliveryRoutingTests(unittest.TestCase):
         self.token_patch.start()
         self.addCleanup(self.token_patch.stop)
         self.calls = []
+        self.channel_patch = patch.multiple(
+            bot_api, ANNOUNCEMENTS_CHANNEL_ID="announcements-test",
+            LOG_CHANNEL_ID="logs-test", CHANNEL_ID="announcements-test",
+            LOGS_CHANNEL_ID="logs-test")
+        self.channel_patch.start()
+        self.addCleanup(self.channel_patch.stop)
         self.request_patch = patch.object(
             bot_api, "discord_request",
             side_effect=lambda token, method, path, payload: self.calls.append(path),

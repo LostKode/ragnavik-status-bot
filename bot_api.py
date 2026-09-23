@@ -6,17 +6,17 @@ import urllib.request
 
 BOT_TOKEN_FILE = os.environ.get("DISCORD_BOT_TOKEN_FILE", "/run/secrets/ragnavik_discord_bot_token")
 CONTROL_TOKEN_FILE = os.environ.get("RAGNAVIK_CONTROL_TOKEN_FILE", "/run/secrets/ragnavik_bot_control_token")
-STATUS_URL = os.environ.get("RAGNAVIK_STATUS_URL", "http://192.168.86.21:8787")
+STATUS_URL = os.environ.get("RAGNAVIK_STATUS_URL", "")
 LOG_CHANNEL_ID = os.environ.get("DISCORD_LOG_CHANNEL_ID",
-                                os.environ.get("DISCORD_LOGS_CHANNEL_ID", "1245520097758674964"))
+                                os.environ.get("DISCORD_LOGS_CHANNEL_ID", ""))
 ANNOUNCEMENTS_CHANNEL_ID = os.environ.get(
     "DISCORD_ANNOUNCEMENTS_CHANNEL_ID",
-    os.environ.get("DISCORD_STATUS_CHANNEL_ID", "1245510337139052575"))
+    os.environ.get("DISCORD_STATUS_CHANNEL_ID", ""))
 LONGHOUSE_CHANNEL_ID = os.environ.get("DISCORD_LONGHOUSE_CHANNEL_ID", "")
 # Backward-compatible names used by existing deployments and tests.
 CHANNEL_ID = ANNOUNCEMENTS_CHANNEL_ID
 LOGS_CHANNEL_ID = LOG_CHANNEL_ID
-OWNER_ID = os.environ.get("DISCORD_OWNER_ID", "208311542016376833")
+OWNER_ID = os.environ.get("DISCORD_OWNER_ID", "")
 DISCORD_API = "https://discord.com/api/v10"
 
 
@@ -29,6 +29,8 @@ def request(url, method, payload, headers):
 
 
 def control(method, path, payload=None):
+    if not STATUS_URL:
+        raise RuntimeError("RAGNAVIK_STATUS_URL is not configured")
     token = Path(CONTROL_TOKEN_FILE).read_text().strip()
     return request(STATUS_URL + path, method, payload, {"X-Ragnavik-Control": token})
 
@@ -43,6 +45,8 @@ def deliver(item):
     if not token:
         raise RuntimeError("Discord bot token file is empty")
     if item["destination"] == "dm":
+        if not OWNER_ID:
+            raise RuntimeError("DISCORD_OWNER_ID is not configured")
         dm = discord_request(token, "POST", "/users/@me/channels", {"recipient_id": OWNER_ID})
         channel_id = dm["id"]
     else:
