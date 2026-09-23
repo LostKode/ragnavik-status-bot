@@ -1,33 +1,44 @@
-# Deployment notes
+# Deployment guide
 
-The bot source is private. The separate Swarm integration lives in [LostKode/docker-swarm-configs](https://github.com/LostKode/docker-swarm-configs/pull/43). Keep secrets out of either repository.
+This guide describes the public deployment contract. Keep site specific topology, addresses, account names, channel IDs, and recovery procedures in a private infrastructure repository.
 
-## Deployment boundary
+## Boundary
 
-A status-bot deployment may update the Phoenix manager watcher, its systemd unit, or the Quetzalcoatl worker image and service. It must not copy, replace, remove, or reconfigure live Valheim mods, and it must not restart or redeploy the game server.
+A bot deployment updates the watcher or Discord worker only. It must not restart or reconfigure the game server. Any game server change should follow its own maintenance, save, backup, rollback, and acceptance procedure.
 
-Changes to the game service or its mods require a separate, explicitly authorized server deployment. Before that separate deployment replaces or restarts the Valheim task, save the world and create and verify an independent rollback backup. The Ragnavik Progress mod is maintained in [LostKode/ragnavik-progress](https://github.com/LostKode/ragnavik-progress), not in this repository.
+## Secrets
 
-## Phoenix manager
+Create separate high entropy values for:
 
-Copy `status_monitor.py`, `ragnavik-status.service`, and `scripts/install-manager.sh` to Phoenix as `/tmp/ragnavik-status_monitor.py`, `/tmp/ragnavik-status.service`, and `/tmp/ragnavik-install-manager.sh`. Run `sudo bash /tmp/ragnavik-install-manager.sh`. The script makes independent hook and control token files and Swarm secrets, installs the read-only watcher, and starts it. It does not change the Valheim service. Verify `systemctl is-active ragnavik-status.service`, and check that `/var/lib/ragnavik-status/state.json` has an empty `pending` array at first installation.
+* Discord bot authentication
+* Watcher control requests
+* Server report requests
+* Anti cheat reports
 
-## Worker image
+Mount each credential as a read only secret file. Never place credential values in environment variables, compose files, command history, container labels, or source control.
 
-GitHub Actions publishes `ghcr.io/lostkode/ragnavik-status-bot:1.0.0` from the `v1.0.0` tag. The image remains private. The local Docker build uses the same source and tag. Quetzalcoatl accepts `klastic@192.168.86.23` with `/home/klastic/.ssh/codex-quaz`. Load the local image with `docker save ghcr.io/lostkode/ragnavik-status-bot:1.0.0 | ssh -i /home/klastic/.ssh/codex-quaz klastic@192.168.86.23 docker load`, then deploy `ragnavik-bot.yml` from Phoenix with `docker stack deploy --resolve-image never`. The worker must retain the local image when the service is rescheduled or the worker is reprovisioned.
+## Watcher
 
-The Swarm secret `ragnavik_discord_bot_token` is already present. The watcher installer creates `ragnavik_bot_control_token` and `ragnavik_status_hook_token`. Grant the Discord application permission to send in announcements channel `1245510337139052575`; keep channel `1245520097758674964` for anti-cheat and diagnostics. The invite link is in the main README.
+Run `status_monitor.py run` with a persistent state directory and explicit bind settings. Restrict the listener to trusted game and worker networks. Use `RAGNAVIK_PROBE_MODE=hooks` when the game reports readiness directly. Use `swarm` only when the watcher has intentionally scoped Docker access.
 
-For automatic client-pack announcements, deploy the watcher update and verify its persistent state records the currently published client version before uploading a newer client package. The watcher polls Thunderstore every 30 minutes and waits for the matching changelog row in the public package README. It does not announce a version merely because the bot or watcher restarted.
+For a system service installation, review `ragnavik-status.service` and `scripts/install-manager.sh` before use. The example creates a dedicated unprivileged account and binds to loopback unless an operator supplies another address.
 
-## Anti-cheat intake
+## Worker
 
-The worker image hosts an authenticated anti-cheat intake on Quetzalcoatl. Configure `RAGNAVIK_ANTICHEAT_BIND`, `RAGNAVIK_ANTICHEAT_PORT`, `RAGNAVIK_ANTICHEAT_TOKEN_FILE`, and `RAGNAVIK_BOT_STATE_DIR`. Mount the token as the dedicated `ragnavik_anticheat_reporter_token` secret and persist the state directory with ownership writable by container user `10001`. Permit only Fenrir to reach the private intake port.
+Configure all routing values through the environment and mount all credentials through secret files. Persist the worker state directory with ownership for container user `10001`. Limit the anti cheat intake to trusted server networks.
 
-The intake validates and deduplicates events, writes them to `anticheat.sqlite3`, and acknowledges only after persistence. The normal delivery loop posts them to the private log channel and marks them delivered only after Discord accepts the message. Leave the CatosAntiCheat webhook URL empty. Installing the companion DLL on Fenrir is a separate server deployment and is not part of a bot deployment.
+Release tags publish `ghcr.io/lostkode/ragnavik-status-bot:<version>`. Pin an exact version in the deployment manifest. Avoid floating tags for production services.
 
 ## Verification
 
-After a manager update, verify `systemctl is-active ragnavik-status.service`, inspect the watcher log, and confirm the authenticated status endpoint responds from its intended LAN clients. After a worker update, verify the Swarm task is healthy, the Discord command sync succeeds, and the delivery queue drains. Confirm the Valheim task was not replaced or restarted as part of either bot deployment.
+After deployment:
 
-Do not test outage or recovery announcements by disrupting the live game. Use unit tests and controlled API fixtures. If a separately authorized server deployment also changes hooks or the progress reporter, follow the server runbook and verify the watcher returns to `live` only after that deployment is complete.
+1. Confirm the watcher and worker use the intended image digest.
+2. Confirm both tasks remain healthy after the update window.
+3. Verify unauthorized watcher requests return `403`.
+4. Submit one controlled authenticated report and confirm it is accepted once.
+5. Confirm the Discord command sync succeeds and the durable queue drains.
+6. Confirm persistent state is mounted and writable.
+7. Confirm no game service task was replaced during the bot deployment.
+
+Use unit tests and controlled API fixtures for outage paths. Do not interrupt a live game merely to test alerts.
