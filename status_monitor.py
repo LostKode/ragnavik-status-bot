@@ -10,6 +10,7 @@ import http.server
 import json
 import os
 import re
+import socket
 from pathlib import Path
 import subprocess
 import threading
@@ -28,6 +29,9 @@ CONTROL_TOKEN_FILE = os.environ.get("RAGNAVIK_CONTROL_TOKEN_FILE", "/etc/ragnavi
 DOWN_GRACE = int(os.environ.get("RAGNAVIK_DOWN_GRACE_SECONDS", "180"))
 RESTART_GRACE = int(os.environ.get("RAGNAVIK_RESTART_GRACE_SECONDS", "600"))
 POLL_SECONDS = int(os.environ.get("RAGNAVIK_POLL_SECONDS", "30"))
+QUERY_HOST = os.environ.get("RAGNAVIK_QUERY_HOST", "")
+QUERY_PORT = int(os.environ.get("RAGNAVIK_QUERY_PORT", "2457"))
+QUERY_TIMEOUT = float(os.environ.get("RAGNAVIK_QUERY_TIMEOUT", "3"))
 CLIENT_PACK_CHECK_SECONDS = int(os.environ.get("RAGNAVIK_CLIENT_PACK_CHECK_SECONDS", "1800"))
 CLIENT_PACK_API = "https://ragnavik.vercel.app/api/changelog"
 CLIENT_PACK_PAGE = "https://valheim.hexium.gg/mods/LostKode/Ragnavik"
@@ -91,17 +95,31 @@ def docker(*args):
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or f"docker {' '.join(args)} failed")
     return result.stdout.strip()
-    if PROBE_MODE == "hooks":
-        with locked_state() as state:
-            container = state.get("ready_container", "")
-            ready_at = state.get("ready_at", "")
-            stopped_at = state.get("stopped_at", "")
-        healthy = bool(container and (not stopped_at or ready_at > stopped_at))
-        return {"healthy": healthy,
-                "reason": "game listener has not reported ready" if not healthy else "ready",
-                "task": "", "container": container}
 
 
+def query_game():
+    """Require a current A2S_INFO response, not merely a bound UDP socket."""
+    if not QUERY_HOST:
+        return False, "game query target is not configured"
+    request = b"\xff\xff\xff\xffTSource Engine Query\x00"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+            client.settimeout(QUERY_TIMEOUT)
+            client.connect((QUERY_HOST, QUERY_PORT))
+            client.send(request)
+            data = client.recv(4096)
+            if data[:5] == b"\xff\xff\xff\xffA" and len(data) == 9:
+                client.send(request + data[5:9])
+                data = client.recv(4096)
+            if len(data) < 6 or data[:5] != b"\xff\xff\xff\xffI":
+                return False, "invalid game query response"
+            # Protocol byte, four NUL-terminated strings, then app/player fields.
+            fields = data[6:].split(b"\x00", 4)
+            if len(fields) != 5 or len(fields[4]) < 9:
+                return False, "truncated game query response"
+            return True, "game query answered"
+    except OSError as exc:
+        return False, f"game query failed: {type(exc).__name__}"
 
 
 def probe():
@@ -111,8 +129,10 @@ def probe():
             ready_at = state.get("ready_at", "")
             stopped_at = state.get("stopped_at", "")
         healthy = bool(container and (not stopped_at or ready_at > stopped_at))
-        return {"healthy": healthy,
-                "reason": "game listener has not reported ready" if not healthy else "ready",
+        reason = "game listener has not reported ready"
+        if healthy:
+            healthy, reason = query_game()
+        return {"healthy": healthy, "reason": reason,
                 "task": "", "container": container}
     try:
         node_state = docker("node", "inspect", NODE, "--format", "{{.Status.State}}")
@@ -129,6 +149,8 @@ def probe():
         running = node_state == "ready" and status.get("State") == "running"
         reason = ("Valheim host is down" if node_state != "ready" else
                   f"task is {status.get('State', 'unknown')}")
+        if running:
+            running, reason = query_game()
         return {"healthy": running, "reason": reason, "task": task_id,
                 "container": container}
     except (RuntimeError, subprocess.TimeoutExpired, ValueError, KeyError) as exc:
@@ -626,6 +648,10 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(400)
                 return
             with locked_state() as state:
+                maintenance = state.get("maintenance") or {}
+                if (event_id == maintenance.get("announcement_id") and
+                        any(item["id"] == event_id for item in state["pending"])):
+                    maintenance["discord_delivered_at"] = now()
                 state["pending"] = [item for item in state["pending"] if item["id"] != event_id]
         else:
             try:
@@ -668,12 +694,14 @@ def maintenance_start(reason, hours, countdown_minutes=10):
         if state.get("maintenance") and state["phase"] == "maintenance":
             raise RuntimeError("maintenance is already active")
         started = now()
-        state["maintenance"] = {"reason": reason, "until": started + hours * 3600,
+        state["maintenance"] = {"reason": reason, "started_at": started, "until": started + hours * 3600,
                                 "shutdown_at": started + countdown_minutes * 60, "finished": False}
         state["phase"] = "maintenance"
         state.pop("down_since", None)
         record(state, "maintenance", reason,
-               [("announcements", "Ragnavik is going offline for planned maintenance. I will post when it is live again.")])
+               [("announcements", f"Ragnavik will restart for maintenance in {countdown_minutes:g} minutes. "
+                 "Please finish up safely. I will post when connections are verified again.")])
+        state["maintenance"]["announcement_id"] = state["pending"][-1]["id"]
 
 
 def maintenance_end():
@@ -695,10 +723,14 @@ def maintenance_backup_verified():
         record(state, "backup_verified", "pre-update rollback backup verified",
                [("logs", "Ragnavik's pre-update rollback backup has been created and verified. Maintenance can proceed.")])
         state["maintenance"]["backup_announced"] = True
+        state["maintenance"]["backup_verified_at"] = now()
 
 
 
 def announce_live():
+    observation = probe()
+    if not observation["healthy"]:
+        raise RuntimeError("Cannot announce live: " + observation["reason"])
     latest = latest_client_pack(public_json(CLIENT_PACK_API))
     with locked_state() as state:
         state["client_pack_version"] = latest["version"]

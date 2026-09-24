@@ -174,7 +174,13 @@ class ApiTests(unittest.TestCase):
         item = self.call("GET", "/events", token="control")
         self.assertEqual(item["destination"], "announcements")
         self.assertEqual(self.call("GET", "/state", token="control")["phase"], "maintenance")
+        self.call("POST", "/ack", {"id": "unrelated-event"}, "control")
+        before = self.call("GET", "/state", token="control")["maintenance"]
+        self.assertNotIn("discord_delivered_at", before)
         self.call("POST", "/ack", {"id": item["id"]}, "control")
+        delivered = self.call("GET", "/state", token="control")["maintenance"]
+        self.assertGreaterEqual(delivered["discord_delivered_at"], delivered["started_at"])
+        self.assertEqual(delivered["announcement_id"], item["id"])
         game = self.call("GET", "/maintenance/game", token="hook")
         self.assertTrue(game["active"])
         self.assertEqual(game["reason"], "UI update")

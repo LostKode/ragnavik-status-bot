@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -38,7 +39,8 @@ class TransitionTests(unittest.TestCase):
             "ready_at": "2026-09-22T01:00:00+00:00",
             "stopped_at": "2026-09-22T00:00:00+00:00",
         })
-        observation = monitor.probe()
+        with patch.object(monitor, "query_game", return_value=(True, "game query answered")):
+            observation = monitor.probe()
         self.assertTrue(observation["healthy"])
         self.assertEqual(observation["container"], "abcdef123456")
 
