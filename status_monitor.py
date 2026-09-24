@@ -11,6 +11,8 @@ import json
 import os
 import re
 import socket
+import secrets
+import struct
 from pathlib import Path
 import subprocess
 import threading
@@ -30,7 +32,7 @@ DOWN_GRACE = int(os.environ.get("RAGNAVIK_DOWN_GRACE_SECONDS", "180"))
 RESTART_GRACE = int(os.environ.get("RAGNAVIK_RESTART_GRACE_SECONDS", "600"))
 POLL_SECONDS = int(os.environ.get("RAGNAVIK_POLL_SECONDS", "30"))
 QUERY_HOST = os.environ.get("RAGNAVIK_QUERY_HOST", "")
-QUERY_PORT = int(os.environ.get("RAGNAVIK_QUERY_PORT", "2457"))
+QUERY_PORT = int(os.environ.get("RAGNAVIK_QUERY_PORT", "2456"))
 QUERY_TIMEOUT = float(os.environ.get("RAGNAVIK_QUERY_TIMEOUT", "3"))
 CLIENT_PACK_CHECK_SECONDS = int(os.environ.get("RAGNAVIK_CLIENT_PACK_CHECK_SECONDS", "1800"))
 CLIENT_PACK_API = "https://ragnavik.vercel.app/api/changelog"
@@ -97,29 +99,77 @@ def docker(*args):
     return result.stdout.strip()
 
 
+def challenge_fields(data):
+    """Decode the small protobuf challenge reply, rejecting malformed fields."""
+    fields = {}
+    offset = 0
+    def varint():
+        nonlocal offset
+        value = 0
+        for shift in range(0, 70, 7):
+            if offset >= len(data):
+                raise ValueError("truncated varint")
+            byte = data[offset]
+            offset += 1
+            value |= (byte & 127) << shift
+            if not byte & 128:
+                return value
+        raise ValueError("oversized varint")
+    while offset < len(data):
+        tag = varint()
+        field, wire = tag >> 3, tag & 7
+        if not field or field in fields:
+            raise ValueError("invalid or duplicate field")
+        if wire == 0:
+            value = varint()
+        elif wire in (1, 5):
+            size = 8 if wire == 1 else 4
+            if offset + size > len(data):
+                raise ValueError("truncated fixed field")
+            value = int.from_bytes(data[offset:offset + size], "little")
+            offset += size
+        elif wire == 2:
+            size = varint()
+            if offset + size > len(data):
+                raise ValueError("truncated byte field")
+            value = data[offset:offset + size]
+            offset += size
+        else:
+            raise ValueError("unsupported wire type")
+        fields[field] = (wire, value)
+    return fields
+
+
 def query_game():
-    """Require a current A2S_INFO response, not merely a bound UDP socket."""
+    """Check the private Steam game socket without opening a player session.
+
+    Valve GameNetworkingSockets UDP challenge: padded request 32, reply 33.
+    Private Valheim servers deliberately do not answer A2S discovery queries.
+    """
     if not QUERY_HOST:
         return False, "game query target is not configured"
-    request = b"\xff\xff\xff\xffTSource Engine Query\x00"
+    connection = secrets.randbits(32) or 1
+    nonce = secrets.randbits(64)
+    body = (b"\x0d" + struct.pack("<I", connection) + b"\x19" +
+            struct.pack("<Q", nonce) + b"\x20\x0d")
+    request = (b"\x20" + struct.pack("<H", len(body)) + body).ljust(512, b"\0")
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
             client.settimeout(QUERY_TIMEOUT)
             client.connect((QUERY_HOST, QUERY_PORT))
             client.send(request)
             data = client.recv(4096)
-            if data[:5] == b"\xff\xff\xff\xffA" and len(data) == 9:
-                client.send(request + data[5:9])
-                data = client.recv(4096)
-            if len(data) < 6 or data[:5] != b"\xff\xff\xff\xffI":
-                return False, "invalid game query response"
-            # Protocol byte, four NUL-terminated strings, then app/player fields.
-            fields = data[6:].split(b"\x00", 4)
-            if len(fields) != 5 or len(fields[4]) < 9:
-                return False, "truncated game query response"
-            return True, "game query answered"
-    except OSError as exc:
-        return False, f"game query failed: {type(exc).__name__}"
+        if data[:1] != b"\x21":
+            return False, "invalid game challenge response"
+        fields = challenge_fields(data[1:])
+        if (fields.get(1) != (5, connection) or fields.get(3) != (1, nonce)
+                or fields.get(2, (None,))[0] != 1
+                or fields.get(4, (None, 0))[0] != 0
+                or fields.get(4, (None, 0))[1] < 1):
+            return False, "mismatched game challenge response"
+        return True, "private game socket answered"
+    except (OSError, ValueError) as exc:
+        return False, f"game challenge failed: {type(exc).__name__}"
 
 
 def probe():
