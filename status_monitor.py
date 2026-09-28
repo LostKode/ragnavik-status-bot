@@ -287,10 +287,35 @@ def client_pack_loop():
         threading.Event().wait(CLIENT_PACK_CHECK_SECONDS)
 
 
+def player_connection_status(state, timestamp):
+    """Allowlisted public response; published release metadata is not deployment proof."""
+    observation = state.get("connection_observation", {})
+    fresh = 0 <= timestamp - observation.get("checked_at", 0) <= 120
+    phase = "unknown"
+    if fresh:
+        maintenance = state.get("maintenance") or {}
+        if state.get("phase") == "maintenance" and timestamp < maintenance.get("until", 0):
+            phase = "maintenance"
+        else:
+            phase = "online" if observation.get("ready") else "unavailable"
+    deployment = state.get("verified_deployment", {})
+    # Bind the attestation to this particular ready cycle, not the latest release.
+    required = None
+    if (fresh and observation.get("ready") and
+            deployment.get("container") == state.get("ready_container") and
+            deployment.get("ready_at") == state.get("ready_at")):
+        required = deployment.get("required_client_version")
+    return {"schemaVersion": 1, "state": phase,
+            "requiredClientVersion": required,
+            "lastVerifiedClientVersion": state.get("last_verified_client_version"),
+            "checkedAt": int(timestamp)}
+
+
 def reconcile(state, observation, timestamp):
     container = observation.get("container", "")
     ready = observation["healthy"] and container and container.startswith(
         state.get("ready_container", "UNMATCHED")) and state.get("ready_container")
+    state["connection_observation"] = {"checked_at": timestamp, "ready": bool(ready)}
     maintenance = state.get("maintenance")
     if (ready and state["phase"] == "maintenance" and maintenance and
             not maintenance.get("finished") and timestamp < maintenance["until"]):
@@ -339,6 +364,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
     def error_response(self, status, code, detail):
         data = json.dumps({"error": code, "detail": detail}).encode()
         self.send_response(status)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -368,12 +394,18 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
     def response(self, payload):
         data = json.dumps(payload).encode()
         self.send_response(200)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path == "/connection-status":
+            with locked_state() as state:
+                payload = player_connection_status(state, now())
+            self.response(payload)
+            return
         if self.path not in ("/state", "/events", "/recent", "/maintenance/game"):
             self.send_error(404)
             return
@@ -429,7 +461,7 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         hook = self.path in ("/ready", "/notready", "/bosses", "/progress")
-        control = self.path in ("/ack", "/maintenance/start", "/maintenance/end")
+        control = self.path in ("/ack", "/maintenance/start", "/maintenance/end", "/deployment/verified")
         if not hook and not control:
             self.send_error(404)
             return
@@ -450,6 +482,31 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                         4096 if self.path == "/bosses" else 512)
         if raw is None:
             return
+        if self.path == "/deployment/verified":
+            try:
+                report = json.loads(raw)
+                container = report["container"]
+                version = report["requiredClientVersion"]
+                if (not isinstance(container, str) or not re.fullmatch(r"[0-9a-f]{12,64}", container)
+                        or not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)):
+                    raise ValueError
+            except (ValueError, KeyError, TypeError):
+                self.send_error(400)
+                return
+            observation = probe()
+            with locked_state() as state:
+                ready_container = state.get("ready_container", "")
+                if (not observation.get("healthy") or not ready_container or
+                        not observation.get("container", "").startswith(container) or
+                        not observation.get("container", "").startswith(ready_container)):
+                    self.send_error(409)
+                    return
+                state["last_verified_client_version"] = version
+                state["verified_deployment"] = {"container": ready_container,
+                    "ready_at": state.get("ready_at"), "required_client_version": version}
+            self.send_response(204)
+            self.end_headers()
+            return
         if self.path in ("/ready", "/notready"):
             container = raw.decode().strip()
             if not container or not all(ch in "0123456789abcdef" for ch in container):
@@ -457,10 +514,13 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
                 return
             with locked_state() as state:
                 if self.path == "/ready":
+                    state.pop("verified_deployment", None)
+                    state.pop("connection_observation", None)
                     state["ready_container"] = container
                     state["ready_at"] = utc(now())
                 elif state.get("ready_container", "").startswith(container):
                     state.pop("ready_container", None)
+                    state["connection_observation"] = {"checked_at": now(), "ready": False}
                     state["stopped_at"] = utc(now())
         elif self.path == "/bosses":
             try:
