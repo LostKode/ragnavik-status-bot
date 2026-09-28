@@ -403,7 +403,8 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/connection-status":
             with locked_state() as state:
-                self.response(player_connection_status(state, now()))
+                payload = player_connection_status(state, now())
+            self.response(payload)
             return
         if self.path not in ("/state", "/events", "/recent", "/maintenance/game"):
             self.send_error(404)
@@ -514,10 +515,12 @@ class StatusHandler(http.server.BaseHTTPRequestHandler):
             with locked_state() as state:
                 if self.path == "/ready":
                     state.pop("verified_deployment", None)
+                    state.pop("connection_observation", None)
                     state["ready_container"] = container
                     state["ready_at"] = utc(now())
                 elif state.get("ready_container", "").startswith(container):
                     state.pop("ready_container", None)
+                    state["connection_observation"] = {"checked_at": now(), "ready": False}
                     state["stopped_at"] = utc(now())
         elif self.path == "/bosses":
             try:

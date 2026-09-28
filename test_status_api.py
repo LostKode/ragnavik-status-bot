@@ -81,6 +81,16 @@ class ApiTests(unittest.TestCase):
             self.call("POST", "/deployment/verified", report, "control")
         self.assertEqual(error.exception.code, 409)
 
+    def test_stop_hook_immediately_clears_public_readiness(self):
+        self.call("POST", "/ready", b"abcdef123456", "hook")
+        with monitor.locked_state() as state:
+            monitor.reconcile(state, monitor.probe(), monitor.now())
+        self.assertEqual(self.call("GET", "/connection-status")["state"], "online")
+        self.call("POST", "/notready", b"abcdef123456", "hook")
+        self.assertEqual(self.call("GET", "/connection-status")["state"], "unavailable")
+        self.call("POST", "/ready", b"abcdef123456", "hook")
+        self.assertEqual(self.call("GET", "/connection-status")["state"], "unknown")
+
     def test_offline_and_stale_observation_cannot_advertise_current_version(self):
         state = {"phase": "live", "ready_container": "abcdef123456", "ready_at": "cycle-a",
                  "verified_deployment": {"container": "abcdef123456", "ready_at": "cycle-a",
