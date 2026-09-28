@@ -54,6 +54,54 @@ class ApiTests(unittest.TestCase):
             return exc.code, json.load(exc)
         self.fail("expected an HTTP error")
 
+    def test_public_connection_status_has_no_private_data(self):
+        with monitor.locked_state() as state:
+            state.update({"client_pack_version": "9.9.9", "player_names": {"secret": "Viking"},
+                          "maintenance": {"reason": "private host address"}})
+        payload = self.call("GET", "/connection-status")
+        self.assertEqual(set(payload), {"schemaVersion", "state", "requiredClientVersion", "lastVerifiedClientVersion", "checkedAt"})
+        self.assertIsNone(payload["requiredClientVersion"])
+        self.assertEqual(payload["state"], "unknown")
+
+    def test_verified_deployment_requires_auth_and_current_ready_container(self):
+        report = {"container": "abcdef123456", "requiredClientVersion": "1.1.60"}
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.call("POST", "/deployment/verified", report)
+        self.assertEqual(error.exception.code, 403)
+        self.call("POST", "/ready", b"abcdef123456", "hook")
+        self.call("POST", "/deployment/verified", report, "control")
+        with monitor.locked_state() as state:
+            monitor.reconcile(state, monitor.probe(), monitor.now())
+        self.assertEqual(self.call("GET", "/connection-status")["requiredClientVersion"], "1.1.60")
+        self.call("POST", "/ready", b"abcdef123456", "hook")
+        self.assertIsNone(self.call("GET", "/connection-status")["requiredClientVersion"])
+        self.assertEqual(self.call("GET", "/connection-status")["lastVerifiedClientVersion"], "1.1.60")
+        report["container"] = "deadbeef1234"
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.call("POST", "/deployment/verified", report, "control")
+        self.assertEqual(error.exception.code, 409)
+
+    def test_offline_and_stale_observation_cannot_advertise_current_version(self):
+        state = {"phase": "live", "ready_container": "abcdef123456", "ready_at": "cycle-a",
+                 "verified_deployment": {"container": "abcdef123456", "ready_at": "cycle-a",
+                                         "required_client_version": "1.1.60"},
+                 "last_verified_client_version": "1.1.60",
+                 "connection_observation": {"checked_at": 1000, "ready": True}}
+        self.assertEqual(monitor.player_connection_status(state, 1001)["requiredClientVersion"], "1.1.60")
+        self.assertIsNone(monitor.player_connection_status(state, 1201)["requiredClientVersion"])
+        state["connection_observation"]["ready"] = False
+        payload = monitor.player_connection_status(state, 1001)
+        self.assertIsNone(payload["requiredClientVersion"])
+        self.assertEqual(payload["lastVerifiedClientVersion"], "1.1.60")
+
+    def test_public_status_is_fresh_and_does_not_wait_for_outage_grace(self):
+        state = {"phase": "live", "connection_observation": {"checked_at": 1000, "ready": False}}
+        self.assertEqual(monitor.player_connection_status(state, 1001)["state"], "unavailable")
+        self.assertEqual(monitor.player_connection_status(state, 1201)["state"], "unknown")
+        state.update(phase="maintenance", maintenance={"until": 1100})
+        self.assertEqual(monitor.player_connection_status(state, 1001)["state"], "maintenance")
+        self.assertEqual(monitor.player_connection_status(state, 1101)["state"], "unavailable")
+
     def test_control_endpoint_rejects_unauthorized_request(self):
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.call("GET", "/state")
